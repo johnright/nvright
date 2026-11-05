@@ -48,6 +48,7 @@ pub fn pack_rgba(rgb: u32, alpha: u8) -> u32 {
 pub struct Segment {
     pub range: std::ops::Range<u32>,
     pub scissor: Option<[u32; 4]>,
+    pub replace: bool,
 }
 
 #[repr(C)]
@@ -62,6 +63,7 @@ struct Globals {
 
 pub struct CellPipeline {
     pipeline: wgpu::RenderPipeline,
+    replace: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
     globals: wgpu::Buffer,
     instances: wgpu::Buffer,
@@ -138,7 +140,7 @@ impl CellPipeline {
         let attributes = wgpu::vertex_attr_array![
             0 => Float32x2, 1 => Float32x2, 2 => Float32x2, 3 => Uint32, 4 => Uint32
         ];
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        let create = |blend| device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("cell"),
             layout: Some(&pipeline_layout),
             vertex: wgpu::VertexState {
@@ -170,6 +172,16 @@ impl CellPipeline {
             multiview_mask: None,
             cache: None,
         });
+        let pipeline = create(blend);
+        let one = wgpu::BlendComponent {
+            src_factor: wgpu::BlendFactor::One,
+            dst_factor: wgpu::BlendFactor::Zero,
+            operation: wgpu::BlendOperation::Add,
+        };
+        let replace = create(wgpu::BlendState {
+            color: one,
+            alpha: one,
+        });
         let globals = device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("globals"),
             size: size_of::<Globals>() as u64,
@@ -194,6 +206,7 @@ impl CellPipeline {
         let instances = Self::instance_buffer(device, capacity);
         Self {
             pipeline,
+            replace,
             bind_group,
             globals,
             instances,
@@ -243,15 +256,23 @@ impl CellPipeline {
         if segments.iter().all(|s| s.range.is_empty()) {
             return;
         }
-        pass.set_pipeline(&self.pipeline);
         pass.set_bind_group(0, &self.bind_group, &[]);
         pass.set_vertex_buffer(0, self.instances.slice(..));
+        let mut replacing = None;
         for segment in segments.iter().filter(|s| !s.range.is_empty()) {
             let [x, y, w, h] = segment.scissor.unwrap_or([0, 0, screen[0], screen[1]]);
             let (x, y) = (x.min(screen[0]), y.min(screen[1]));
             let (w, h) = (w.min(screen[0] - x), h.min(screen[1] - y));
             if w == 0 || h == 0 {
                 continue;
+            }
+            if replacing != Some(segment.replace) {
+                pass.set_pipeline(if segment.replace {
+                    &self.replace
+                } else {
+                    &self.pipeline
+                });
+                replacing = Some(segment.replace);
             }
             pass.set_scissor_rect(x, y, w, h);
             pass.draw(0..4, segment.range.clone());

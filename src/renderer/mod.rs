@@ -49,6 +49,7 @@ pub struct Renderer {
     instances: Vec<Instance>,
     segments: Vec<Segment>,
     background: u32,
+    opacity: f32,
     cursor: CursorAnimation,
     cursor_duration: Duration,
     cursor_trail: f32,
@@ -113,12 +114,18 @@ impl Renderer {
         font_request: FontRequest,
     ) -> Result<Self> {
         let scale = window.scale_factor();
-        let gpu = Gpu::new(window, config.present_mode)?;
+        let transparent = config.opacity < 1.0;
+        let gpu = Gpu::new(window, config.present_mode, transparent)?;
         let font_system = font_system
             .join()
             .map_err(|_| anyhow::anyhow!("loading the fonts failed"))?;
         let fonts = Fonts::new(font_system, &font_request, scale);
-        let raster = Rasterizer::new(config.antialias, gpu.dual_source);
+        let antialias = if transparent {
+            raster::Antialias::Grayscale
+        } else {
+            config.antialias
+        };
+        let raster = Rasterizer::new(antialias, gpu.dual_source);
         let atlas = Atlas::new(&gpu.device);
         let pipeline = CellPipeline::new(
             &gpu.device,
@@ -144,6 +151,7 @@ impl Renderer {
             instances: Vec::new(),
             segments: Vec::new(),
             background: (r as u32) << 16 | (g as u32) << 8 | b as u32,
+            opacity: config.opacity,
             cursor: CursorAnimation::new(),
             cursor_duration: Duration::from_millis(config.cursor_animation_ms),
             cursor_trail: config.cursor_trail,
@@ -458,7 +466,7 @@ impl Renderer {
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(to_wgpu_color(self.background)),
+                        load: wgpu::LoadOp::Clear(to_wgpu_color(self.background, self.opacity)),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
@@ -474,6 +482,7 @@ impl Renderer {
                 let text = Segment {
                     range: self.cursor_text.clone(),
                     scissor: None,
+                    replace: false,
                 };
                 self.pipeline.draw(&mut pass, &[text], size);
             }
@@ -481,6 +490,7 @@ impl Renderer {
                 let rects = Segment {
                     range: self.preview.rect_range.clone(),
                     scissor: Some(panel),
+                    replace: false,
                 };
                 self.pipeline.draw(&mut pass, &[rects], size);
                 let textures: Vec<&ImageTexture> = image_textures
@@ -491,6 +501,7 @@ impl Renderer {
                 let glyphs = Segment {
                     range: self.preview.glyph_range.clone(),
                     scissor: Some(panel),
+                    replace: false,
                 };
                 self.pipeline.draw(&mut pass, &[glyphs], size);
             }
@@ -509,18 +520,22 @@ impl Renderer {
 
     fn update_rows(&mut self, order: &[Placed], state: &EditorState) -> Result<(), AtlasFull> {
         for &(id, _, _) in order {
+            let floating = state
+                .placements
+                .get(&id)
+                .is_some_and(|p| matches!(p.layer, Layer::Float { .. }));
             let ctx = RowContext {
                 hl: &state.hl,
                 text: &state.text,
                 metrics: self.fonts.metrics,
                 queue: &self.gpu.queue,
-                paint_default_bg: id != MAIN_GRID,
+                paint_default_bg: id != MAIN_GRID && (self.opacity >= 1.0 || floating),
             };
             for row in &state.grids[&id].rows {
                 let (used, instances) = self.rows.entry(row.id).or_default();
                 let cached = *used != 0;
                 *used = self.frame;
-                if row.dirty || !cached {
+                if row.dirty || !cached || instances.default_bg != ctx.paint_default_bg {
                     self.builder.build(
                         row,
                         &ctx,
@@ -610,6 +625,7 @@ impl Renderer {
                 self.segments.push(Segment {
                     range: start..self.instances.len() as u32,
                     scissor: None,
+                    replace: false,
                 });
                 veil_drawn = true;
             }
@@ -620,6 +636,7 @@ impl Renderer {
                     self.segments.push(Segment {
                         range: start..self.instances.len() as u32,
                         scissor: None,
+                        replace: false,
                     });
                 }
                 continue;
@@ -648,17 +665,23 @@ impl Renderer {
                 self.segments.push(Segment {
                     range: start..self.instances.len() as u32,
                     scissor: None,
+                    replace: false,
                 });
             }
-            let start = self.instances.len() as u32;
             if state
                 .placements
                 .get(&id)
                 .is_some_and(|p| p.layer == Layer::Window)
             {
-                self.instances
-                    .push(Instance::solid(ox, oy, gw, gh, self.background));
+                push_base(
+                    &mut self.instances,
+                    &mut self.segments,
+                    self.background,
+                    self.opacity,
+                    [ox, oy, gw, gh],
+                );
             }
+            let start = self.instances.len() as u32;
             let placed: Vec<(f32, &RowInstances)> = rows
                 .iter()
                 .enumerate()
@@ -715,6 +738,7 @@ impl Renderer {
             self.segments.push(Segment {
                 range: start..self.instances.len() as u32,
                 scissor: (id != MAIN_GRID).then(|| scissor(ox, oy, gw, gh)),
+                replace: false,
             });
 
             let mut row_offset = vec![0.0f32; grid.height()];
@@ -749,13 +773,19 @@ impl Renderer {
                     }
                     placed.push((y, row));
                 }
+                push_base(
+                    &mut self.instances,
+                    &mut self.segments,
+                    self.background,
+                    self.opacity,
+                    [x0, y0, x1 - x0, y1 - y0],
+                );
                 let start = self.instances.len() as u32;
-                self.instances
-                    .push(Instance::solid(x0, y0, x1 - x0, y1 - y0, self.background));
                 push_rows(&mut self.instances, ox, &placed);
                 self.segments.push(Segment {
                     range: start..self.instances.len() as u32,
                     scissor: Some(scissor(x0, y0, x1 - x0, y1 - y0)),
+                    replace: false,
                 });
                 row_offset[top..bot].fill(offset);
             }
@@ -1073,6 +1103,25 @@ fn shadow_alpha(background: u32) -> u8 {
     if lightness < 0.35 { 190 } else { 110 }
 }
 
+fn push_base(
+    instances: &mut Vec<Instance>,
+    segments: &mut Vec<Segment>,
+    background: u32,
+    opacity: f32,
+    [x, y, w, h]: [f32; 4],
+) {
+    let start = instances.len() as u32;
+    instances.push(Instance {
+        color: pack_rgba(background, (opacity * 255.0).round() as u8),
+        ..Instance::solid(x, y, w, h, background)
+    });
+    segments.push(Segment {
+        range: start..instances.len() as u32,
+        scissor: Some(scissor(x, y, w, h)),
+        replace: true,
+    });
+}
+
 fn scissor(x: f32, y: f32, w: f32, h: f32) -> [u32; 4] {
     let (x0, y0) = (x.max(0.0), y.max(0.0));
     let (x1, y1) = ((x + w).max(x0), (y + h).max(y0));
@@ -1095,13 +1144,14 @@ fn clip(inst: &Instance, [x0, y0, x1, y1]: [f32; 4]) -> Option<Instance> {
     })
 }
 
-fn to_wgpu_color(rgb: u32) -> wgpu::Color {
-    let c = |shift: u32| ((rgb >> shift) & 0xff) as f64 / 255.0;
+fn to_wgpu_color(rgb: u32, alpha: f32) -> wgpu::Color {
+    let a = alpha as f64;
+    let c = |shift: u32| ((rgb >> shift) & 0xff) as f64 / 255.0 * a;
     wgpu::Color {
         r: c(16),
         g: c(8),
         b: c(0),
-        a: 1.0,
+        a,
     }
 }
 

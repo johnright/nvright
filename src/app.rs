@@ -148,7 +148,19 @@ impl App {
             }
             self.geometry = Some(saved);
         }
+        #[cfg(windows)]
+        if self.config.opacity < 1.0 {
+            use winit::platform::windows::WindowAttributesExtWindows;
+            attrs = attrs.with_no_redirection_bitmap(true);
+        }
         let window = Arc::new(event_loop.create_window(with_icon(attrs))?);
+        if self.config.blur {
+            if self.config.opacity < 1.0 {
+                crate::window_state::set_blur(&window, true);
+            } else {
+                log::warn!("blur needs opacity < 1, nothing to see through");
+            }
+        }
         self.cloaked = crate::window_state::set_cloaked(&window, true);
         if self.cloaked {
             if maximized {

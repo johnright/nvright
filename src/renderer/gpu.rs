@@ -17,7 +17,11 @@ pub enum Frame {
 }
 
 impl Gpu {
-    pub fn new(window: Arc<Window>, present_mode: Option<wgpu::PresentMode>) -> Result<Self> {
+    pub fn new(
+        window: Arc<Window>,
+        present_mode: Option<wgpu::PresentMode>,
+        transparent: bool,
+    ) -> Result<Self> {
         let candidates: &[wgpu::Backends] = if cfg!(windows) {
             &[wgpu::Backends::DX12, wgpu::Backends::VULKAN]
         } else {
@@ -29,6 +33,10 @@ impl Gpu {
             .find_map(|&backends| {
                 let mut desc = wgpu::InstanceDescriptor::new_without_display_handle();
                 desc.backends = backends;
+                if transparent {
+                    desc.backend_options.dx12.presentation_system =
+                        wgpu::Dx12SwapchainKind::DxgiFromVisual;
+                }
                 let instance = wgpu::Instance::new(desc.with_env());
                 let surface = instance.create_surface(window.clone()).ok()?;
                 let adapter =
@@ -88,7 +96,13 @@ impl Gpu {
                 wgpu::PresentMode::Fifo
             }
         };
-        let alpha_mode = if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
+        let alpha_mode = if transparent
+            && caps
+                .alpha_modes
+                .contains(&wgpu::CompositeAlphaMode::PreMultiplied)
+        {
+            wgpu::CompositeAlphaMode::PreMultiplied
+        } else if caps.alpha_modes.contains(&wgpu::CompositeAlphaMode::Opaque) {
             wgpu::CompositeAlphaMode::Opaque
         } else {
             caps.alpha_modes[0]
@@ -109,7 +123,7 @@ impl Gpu {
         };
         surface.configure(&device, &surface_config);
         log::info!(
-            "surface: {format:?}, {present_mode:?}, {}x{}",
+            "surface: {format:?}, {present_mode:?}, {alpha_mode:?}, {}x{}",
             size.width,
             size.height
         );
