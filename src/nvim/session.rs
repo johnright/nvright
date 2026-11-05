@@ -61,7 +61,7 @@ async fn session(
             .await
             .context("nvim_ui_attach failed")?;
         log::info!("ui_attach done after {:?}", started.elapsed());
-        tokio::spawn(install_preview(nvim.clone()));
+        tokio::spawn(install_lua(nvim.clone()));
         if restarted && let Err(err) = nvim.exec_lua(EXIT_WITH_GUI, vec![]).await {
             log::warn!(":restart: cannot tie the server to the window: {err}");
         }
@@ -110,19 +110,45 @@ vim.api.nvim_create_autocmd('UILeave', {
 })
 "#;
 
-async fn install_preview(nvim: nvim_rs::Neovim<Writer>) {
-    let result = async {
-        let info = nvim.get_chan_info(0).await?;
-        let id = info
+const WHEEL: &str = r#"
+local chan = ...
+local busy = false
+local function sync()
+  if busy then
+    return
+  end
+  local s = vim.o.mousescroll
+  local ver = tonumber(s:match('ver:(%d+)')) or 3
+  local hor = tonumber(s:match('hor:(%d+)')) or 6
+  vim.rpcnotify(chan, 'right_editor_wheel', ver, hor)
+  busy = true
+  vim.o.mousescroll = 'ver:1,hor:1'
+  busy = false
+end
+vim.api.nvim_create_autocmd('OptionSet', {
+  pattern = 'mousescroll',
+  desc = 'right_editor: wheel multiplier',
+  callback = sync,
+})
+sync()
+"#;
+
+async fn install_lua(nvim: nvim_rs::Neovim<Writer>) {
+    let id = match nvim.get_chan_info(0).await {
+        Ok(info) => info
             .iter()
             .find(|(k, _)| k.as_str() == Some("id"))
             .and_then(|(_, v)| v.as_i64())
-            .unwrap_or(0);
-        nvim.exec_lua(crate::preview::LUA, vec![id.into()]).await?;
-        Ok::<_, Box<nvim_rs::error::CallError>>(())
+            .unwrap_or(0),
+        Err(err) => {
+            log::warn!("no channel id, nvim-side Lua not installed: {err}");
+            return;
+        }
+    };
+    if let Err(err) = nvim.exec_lua(WHEEL, vec![id.into()]).await {
+        log::warn!("wheel setup not installed in nvim: {err}");
     }
-    .await;
-    if let Err(err) = result {
+    if let Err(err) = nvim.exec_lua(crate::preview::LUA, vec![id.into()]).await {
         log::warn!("markdown preview not installed in nvim: {err}");
     }
 }
