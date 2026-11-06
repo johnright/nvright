@@ -21,6 +21,7 @@ impl Gpu {
         window: Arc<Window>,
         present_mode: Option<wgpu::PresentMode>,
         transparent: bool,
+        readable: bool,
     ) -> Result<Self> {
         let candidates: &[wgpu::Backends] = if cfg!(windows) {
             &[wgpu::Backends::DX12, wgpu::Backends::VULKAN]
@@ -109,7 +110,11 @@ impl Gpu {
         };
 
         let surface_config = wgpu::SurfaceConfiguration {
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+            usage: if readable {
+                wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC
+            } else {
+                wgpu::TextureUsages::RENDER_ATTACHMENT
+            },
             format,
             width: size.width.max(1),
             height: size.height.max(1),
