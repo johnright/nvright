@@ -16,6 +16,6 @@ if [[ $profile == release ]]; then
     exe=$(scripts/build-win.sh "${cargo_args[@]}")
 else
     scripts/build-win.sh "${cargo_args[@]}"
-    exe="target/x86_64-pc-windows-msvc/debug/right_editor.exe"
+    exe="target/x86_64-pc-windows-msvc/debug/nvright.exe"
 fi
 exec "$exe" "$@"

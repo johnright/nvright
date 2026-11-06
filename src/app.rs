@@ -133,7 +133,7 @@ impl App {
 
     fn init(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
         let mut attrs = Window::default_attributes()
-            .with_title("right_editor")
+            .with_title("nvright")
             .with_inner_size(LogicalSize::new(1024.0, 640.0))
             .with_visible(false)
             .with_active(!self.config.hidden);
@@ -305,7 +305,7 @@ impl App {
         let Some(url) = doc.link_at(x, y) else {
             let line = doc.line_at(y) + 1;
             self.send(NvimCommand::Lua(
-                "_G.right_editor_preview.goto_line(...)".into(),
+                "_G.nvright_preview.goto_line(...)".into(),
                 vec![line.into()],
             ));
             return;
@@ -322,7 +322,7 @@ impl App {
             }
             LinkTarget::Web(url) => crate::preview::open_url(&url),
             LinkTarget::File(path) => self.send(NvimCommand::Lua(
-                "_G.right_editor_preview.open_file(...)".into(),
+                "_G.nvright_preview.open_file(...)".into(),
                 vec![path.into()],
             )),
             LinkTarget::Unsupported => log::info!("preview: unsupported link: {url}"),
@@ -489,7 +489,7 @@ impl App {
         if let Some(window) = &self.window {
             if let Some(title) = self.state.title.take() {
                 window.set_title(if title.is_empty() {
-                    "right_editor"
+                    "nvright"
                 } else {
                     &title
                 });
@@ -756,7 +756,7 @@ impl ApplicationHandler<UserEvent> for App {
                     .then(|| input::translate(&key.logical_key, key.text.as_deref(), self.mods))
                     .flatten();
                 log::debug!(
-                    target: "right_editor::keys",
+                    target: "nvright::keys",
                     "{:?}{} {:?} physical={:?} text={:?} mod={:?} → {:?}",
                     key.state,
                     if key.repeat { " (repeat)" } else { "" },
@@ -767,7 +767,7 @@ impl ApplicationHandler<UserEvent> for App {
                     keys,
                 );
                 if *is_synthetic {
-                    log::debug!(target: "right_editor::keys", "  (synthetic event, ignored)");
+                    log::debug!(target: "nvright::keys", "  (synthetic event, ignored)");
                     return;
                 }
                 if self.shortcut(key) {

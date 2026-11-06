@@ -15,7 +15,7 @@ use parse::Highlight;
 
 pub const LUA: &str = include_str!("preview.lua");
 
-pub const TOGGLE: &str = "_G.right_editor_preview.toggle()";
+pub const TOGGLE: &str = "_G.nvright_preview.toggle()";
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum PreviewEvent {

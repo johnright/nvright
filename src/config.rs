@@ -59,7 +59,7 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             log_filter: std::env::var("RUST_LOG")
-                .unwrap_or_else(|_| "warn,right_editor=info".to_string()),
+                .unwrap_or_else(|_| "warn,nvright=info".to_string()),
             present_mode: None,
             background: [0x1e, 0x1e, 0x2e],
             font: None,
@@ -88,9 +88,9 @@ impl Default for Config {
 }
 
 const USAGE: &str = "\
-usage: right_editor [options] [file...] [-- arguments for nvim]
+usage: nvright [options] [file...] [-- arguments for nvim]
 
-  --log <filter>          log filter, e.g. \"info\" or \"warn,right_editor=debug\"
+  --log <filter>          log filter, e.g. \"info\" or \"warn,nvright=debug\"
   --present-mode <mode>   fifo | fifo-relaxed | mailbox | immediate (default: mailbox if available, else fifo)
   --bg <#rrggbb>          initial background color
   --font <family>         font (default: from 'guifont', then Cascadia Mono)
@@ -126,7 +126,7 @@ usage: right_editor [options] [file...] [-- arguments for nvim]
   -h, --help              show this message
 
 The same options (without --) can go in config.toml, in
-%APPDATA%\\right_editor\\ on Windows or ~/.config/right_editor/ on Linux;
+%APPDATA%\\nvright\\ on Windows or ~/.config/nvright/ on Linux;
 the command line wins. E.g.:  font = \"FiraCode Nerd Font\"
 font-weight = 500,  latency = true,  args = [\"-u\", \"~/alt.lua\"].
 
@@ -331,7 +331,13 @@ pub fn config_dir() -> Option<std::path::PathBuf> {
                 std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config"))
             })
     };
-    base.map(|b| b.join("right_editor"))
+    let base = base?;
+    let dir = base.join("nvright");
+    let old = base.join("right_editor");
+    if !dir.exists() && old.is_dir() {
+        let _ = std::fs::rename(&old, &dir);
+    }
+    Some(dir)
 }
 
 pub fn parse_weight(value: &str) -> Result<u16> {

@@ -50,7 +50,7 @@ fn nvim_args(cmd: &mut Command, launch: &NvimLaunch) {
     cmd.args(&launch.args);
 }
 
-const GUI_SETUP: &str = "let g:right_editor = 1 | set title";
+const GUI_SETUP: &str = "let g:nvright = 1 | set title";
 
 const BRIDGE: &str = "local uv = vim.uv; os.remove(arg[0]); \
 local s, i, o = uv.new_pipe(false), uv.new_pipe(false), uv.new_pipe(false); \

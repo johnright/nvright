@@ -2,12 +2,12 @@ local chan = ...
 local api = vim.api
 
 local M = { open = false, buf = nil, dirty = false, timer = nil, attached = {} }
-_G.right_editor_preview = M
+_G.nvright_preview = M
 
 local DEBOUNCE = 30
 
 local function notify(kind, data)
-  pcall(vim.rpcnotify, chan, 'right_editor_md', kind, data)
+  pcall(vim.rpcnotify, chan, 'nvright_md', kind, data)
 end
 
 local function is_markdown(buf)
@@ -282,14 +282,14 @@ function M.open_file(target)
     path = vim.fs.normalize(dir .. '/' .. target)
   end
   if not vim.uv.fs_stat(path) then
-    vim.notify('right_editor: file not found: ' .. path, vim.log.levels.WARN)
+    vim.notify('nvright: file not found: ' .. path, vim.log.levels.WARN)
     return
   end
   api.nvim_set_current_win(win)
   vim.cmd.edit(vim.fn.fnameescape(path))
 end
 
-local group = api.nvim_create_augroup('right_editor_preview', { clear = true })
+local group = api.nvim_create_augroup('nvright_preview', { clear = true })
 api.nvim_create_autocmd({ 'BufEnter', 'FileType' }, {
   group = group,
   callback = function(ev)
@@ -314,6 +314,6 @@ api.nvim_create_autocmd('ColorScheme', {
     end
   end,
 })
-api.nvim_create_user_command('RightEditorPreview', function(opts)
+api.nvim_create_user_command('NvrightPreview', function(opts)
   M.toggle(opts.bang and false or nil)
-end, { bang = true, desc = 'right_editor: markdown preview (! closes it)' })
+end, { bang = true, desc = 'nvright: markdown preview (! closes it)' })
