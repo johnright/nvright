@@ -2,7 +2,8 @@ use std::collections::HashMap;
 
 use cosmic_text::CacheKey;
 
-use super::font::Fonts;
+use super::boxdraw;
+use super::font::{CellMetrics, Fonts};
 use super::raster::{Coverage, RasterGlyph, Rasterizer};
 
 const SIZE: u32 = 2048;
@@ -24,6 +25,7 @@ pub struct Atlas {
     texture: wgpu::Texture,
     pub view: wgpu::TextureView,
     glyphs: HashMap<CacheKey, Option<AtlasGlyph>>,
+    drawn: HashMap<char, AtlasGlyph>,
     cursor_x: u32,
     cursor_y: u32,
     shelf_height: u32,
@@ -50,6 +52,7 @@ impl Atlas {
             texture,
             view,
             glyphs: HashMap::new(),
+            drawn: HashMap::new(),
             cursor_x: 0,
             cursor_y: 0,
             shelf_height: 0,
@@ -58,6 +61,7 @@ impl Atlas {
 
     pub fn clear(&mut self) {
         self.glyphs.clear();
+        self.drawn.clear();
         self.cursor_x = 0;
         self.cursor_y = 0;
         self.shelf_height = 0;
@@ -79,6 +83,23 @@ impl Atlas {
         };
         self.glyphs.insert(key, glyph);
         Ok(glyph)
+    }
+
+    pub fn get_drawn(
+        &mut self,
+        c: char,
+        metrics: &CellMetrics,
+        queue: &wgpu::Queue,
+    ) -> Result<Option<AtlasGlyph>, AtlasFull> {
+        if let Some(glyph) = self.drawn.get(&c) {
+            return Ok(Some(*glyph));
+        }
+        let Some(image) = boxdraw::rasterize(c, metrics) else {
+            return Ok(None);
+        };
+        let glyph = self.upload(&image, queue)?;
+        self.drawn.insert(c, glyph);
+        Ok(Some(glyph))
     }
 
     fn upload(

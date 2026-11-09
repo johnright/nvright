@@ -14,6 +14,38 @@ pub struct RowInstances {
     pub default_bg: bool,
 }
 
+fn is_box_drawing(c: char) -> bool {
+    ('\u{2500}'..='\u{259f}').contains(&c)
+}
+
+fn push_to_cell(glyph: Instance, m: &CellMetrics, out: &mut Vec<Instance>) {
+    let (top, h) = (glyph.pos[1], glyph.size[1]);
+    if h < 3.0 {
+        out.push(glyph);
+        return;
+    }
+    let row = |y: f32, src: f32| Instance {
+        pos: [glyph.pos[0], y],
+        size: [glyph.size[0], 1.0],
+        uv: [glyph.uv[0], glyph.uv[1] + src],
+        ..glyph
+    };
+    let reaches_top = m.gap_top > 0.0 && top <= m.gap_top + 1.0;
+    let bottom = top + h;
+    let reaches_bottom = m.gap_bottom > 0.0 && bottom >= m.height - m.gap_bottom - 1.0;
+    out.push(glyph);
+    if reaches_top {
+        for y in 0..=top.max(0.0) as u32 {
+            out.push(row(y as f32, 1.0));
+        }
+    }
+    if reaches_bottom {
+        for y in (bottom - 1.0) as u32..m.height as u32 {
+            out.push(row(y as f32, h - 2.0));
+        }
+    }
+}
+
 #[derive(Default)]
 pub struct RowBuilder {
     seg_text: String,
@@ -108,11 +140,22 @@ impl RowBuilder {
                     .partition_point(|&(byte, _)| byte <= g.byte)
                     .saturating_sub(1);
                 let gcol = self.seg_map[i].1;
+                let fg = ctx.hl.colors(cells[gcol as usize].hl).fg;
+                let c = self.seg_text[g.byte as usize..].chars().next().unwrap_or(' ');
+                if let Some(ag) = atlas.get_drawn(c, &m, ctx.queue)? {
+                    out.fg.push(Instance {
+                        pos: [gcol as f32 * m.width + ag.left as f32, 0.0],
+                        size: [ag.size[0] as f32, ag.size[1] as f32],
+                        uv: [ag.uv[0] as f32, ag.uv[1] as f32],
+                        color: pack_rgb(fg),
+                        kind: KIND_MASK,
+                    });
+                    continue;
+                }
                 let Some(ag) = atlas.get(g.key, fonts, raster, ctx.queue)? else {
                     continue;
                 };
-                let fg = ctx.hl.colors(cells[gcol as usize].hl).fg;
-                out.fg.push(Instance {
+                let glyph = Instance {
                     pos: [
                         gcol as f32 * m.width + (g.x + ag.left as i32) as f32,
                         m.baseline + (g.y - ag.top as i32) as f32,
@@ -125,7 +168,12 @@ impl RowBuilder {
                         Coverage::Subpixel => KIND_SUBPIXEL,
                         Coverage::Color => KIND_COLOR,
                     },
-                });
+                };
+                if is_box_drawing(c) {
+                    push_to_cell(glyph, &m, &mut out.fg);
+                } else {
+                    out.fg.push(glyph);
+                }
             }
         }
 

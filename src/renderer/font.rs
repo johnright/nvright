@@ -18,6 +18,9 @@ pub struct CellMetrics {
     pub underline_y: f32,
     pub strikeout_y: f32,
     pub stroke: f32,
+    pub box_stroke: f32,
+    pub gap_top: f32,
+    pub gap_bottom: f32,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -127,6 +130,9 @@ impl Fonts {
                 underline_y: 1.0,
                 strikeout_y: 1.0,
                 stroke: 1.0,
+                box_stroke: 1.0,
+                gap_top: 0.0,
+                gap_bottom: 0.0,
             },
             buffer,
             shape_cache: HashMap::new(),
@@ -216,6 +222,9 @@ impl Fonts {
                 underline_y: s.round() + 1.0,
                 strikeout_y: (s * 0.6).round(),
                 stroke: 1.0,
+                box_stroke: 1.0,
+                gap_top: 0.0,
+                gap_bottom: 0.0,
             };
         };
         let swash = font.as_swash();
@@ -235,6 +244,9 @@ impl Fonts {
             underline_y: (baseline - m.underline_offset).round().min(height - stroke),
             strikeout_y: (baseline - m.strikeout_offset).round(),
             stroke,
+            box_stroke: (self.size_px / 11.0).round().max(1.0),
+            gap_top: (linespace / 2.0).floor(),
+            gap_bottom: linespace - (linespace / 2.0).floor(),
         }
     }
 

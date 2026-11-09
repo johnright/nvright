@@ -1,5 +1,6 @@
 mod animation;
 mod atlas;
+mod boxdraw;
 mod cells;
 pub mod font;
 mod gpu;

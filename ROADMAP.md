@@ -7,7 +7,7 @@ Nothing here is a promise, and anything that makes typing slower or text worse w
 
 ## Soon
 
-- [ ] **Box drawing** – borders and block characters drawn by the GUI, so they
+- [x] **Box drawing** – borders and block characters drawn by the GUI, so they
   stay joined with any `linespace`
 - [ ] **Images in Neovim** – snacks.image through kitty graphics placeholders,
   no ImageMagick
