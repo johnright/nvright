@@ -5,6 +5,7 @@ mod clipboard;
 mod config;
 mod editor;
 mod input;
+mod kitty;
 mod latency;
 mod nvim;
 mod preview;

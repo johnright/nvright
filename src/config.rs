@@ -163,6 +163,8 @@ impl Config {
         config.apply_args(args)?;
         if cfg!(windows) && !config.nvim.no_wsl {
             config.nvim.infer_wsl_location();
+        } else if cfg!(windows) && config.nvim.shell.as_deref().is_some_and(|s| s.starts_with('/')) {
+            config.nvim.shell = None;
         }
         Ok(config)
     }
