@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use crate::kitty::{self, Placeholder};
 use crate::nvim::redraw::GridLineCell;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -16,6 +17,7 @@ impl CellText {
 #[derive(Debug, Default)]
 pub struct TextInterner {
     strings: Vec<Box<str>>,
+    placeholders: Vec<Option<Placeholder>>,
     index: HashMap<Box<str>, u32>,
 }
 
@@ -31,9 +33,18 @@ impl TextInterner {
                 }
                 let i = self.strings.len() as u32;
                 self.strings.push(s.into());
+                self.placeholders.push(kitty::parse_placeholder(s));
                 self.index.insert(s.into(), i);
                 CellText(CLUSTER_BASE + i)
             }
+        }
+    }
+
+    pub fn placeholder(&self, text: CellText) -> Option<Placeholder> {
+        match text.0 {
+            c if c == kitty::PLACEHOLDER as u32 => Some(Placeholder::default()),
+            c if c < CLUSTER_BASE || c == u32::MAX => None,
+            i => self.placeholders[(i - CLUSTER_BASE) as usize],
         }
     }
 

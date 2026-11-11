@@ -74,6 +74,7 @@ pub struct EditorState {
     pub guifont: Option<String>,
     pub linespace: i64,
     pub title: Option<String>,
+    pub images: crate::kitty::Placements,
     pub changes: Vec<GridChange>,
     changed_cells: Vec<(u64, usize)>,
     flushed_cursor: Cursor,

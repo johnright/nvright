@@ -20,6 +20,7 @@ use crate::latency::Latency;
 use crate::nvim::NvimCommand;
 use crate::nvim::redraw::RedrawEvent;
 use crate::preview::layout::{Document, Params};
+use crate::kitty::{FitKey, Fitted, Kitty};
 use crate::preview::{LinkTarget, Preview, PreviewEvent, PreviewMsg};
 use crate::renderer::Renderer;
 use crate::renderer::font::FontRequest;
@@ -40,6 +41,9 @@ pub enum UserEvent {
     #[cfg_attr(not(windows), allow(dead_code))]
     Snapshot(u64),
     PreviewMsg(PreviewMsg),
+    KittyData(Vec<u8>),
+    KittyDistro(String),
+    KittyFitted(FitKey, Arc<Fitted>),
 }
 
 pub struct App {
@@ -72,6 +76,8 @@ pub struct App {
     hidden_since: Option<Instant>,
     cloaked: bool,
     preview: Preview,
+    kitty: Kitty,
+    cell_sent: Option<(f32, f32)>,
 }
 
 const MAX_HIDDEN: Duration = Duration::from_millis(1500);
@@ -88,6 +94,10 @@ impl App {
         let preview = Preview::new(Arc::new(move |msg| {
             let _ = preview_proxy.send_event(UserEvent::PreviewMsg(msg));
         }));
+        let kitty_proxy = proxy.clone();
+        let kitty = Kitty::new(move |key, image| {
+            let _ = kitty_proxy.send_event(UserEvent::KittyFitted(key, image));
+        });
         let vsync = VSync::new(proxy)
             .inspect_err(|err| log::warn!("vsync thread not started: {err}"))
             .ok();
@@ -121,6 +131,8 @@ impl App {
             hidden_since: Some(Instant::now()),
             cloaked: false,
             preview,
+            kitty,
+            cell_sent: None,
         }
     }
 
@@ -485,6 +497,7 @@ impl App {
             self.dump_dirty_rows();
         }
         self.refresh_font();
+        self.sync_cell_size();
         self.refresh_preview();
         if let Some(window) = &self.window {
             if let Some(title) = self.state.title.take() {
@@ -511,6 +524,39 @@ impl App {
         }
         let c = self.state.cursor;
         log::debug!("cursor: g{} r{} c{}", c.grid, c.row, c.col);
+    }
+
+    fn sync_cell_size(&mut self) {
+        let Some(renderer) = &self.renderer else {
+            return;
+        };
+        let cell = renderer.cell_size();
+        if self.cell_sent == Some(cell) {
+            return;
+        }
+        self.cell_sent = Some(cell);
+        self.send(NvimCommand::Lua(
+            "vim.g.nvright_cell = { ... }".into(),
+            vec![cell.0.into(), cell.1.into()],
+        ));
+    }
+
+    fn on_kitty(&mut self, data: &[u8]) {
+        let outcome = self.kitty.feed(data, &mut self.state.images);
+        let Some(renderer) = &mut self.renderer else {
+            return;
+        };
+        if !outcome.forget.is_empty() {
+            renderer.forget_images(Some(&outcome.forget));
+        }
+        if outcome.placements_changed {
+            renderer.images_moved();
+        }
+        if let Some(window) = &self.window
+            && (outcome.placements_changed || !outcome.forget.is_empty())
+        {
+            window.request_redraw();
+        }
     }
 
     fn send(&self, cmd: NvimCommand) {
@@ -843,6 +889,9 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::RedrawRequested => {
                 let result = renderer.render(&mut self.state, &self.preview);
                 self.animating = renderer.animating();
+                for key in renderer.take_missing_images() {
+                    self.kitty.fit(key);
+                }
                 let busy = self.animating || self.hidden_since.is_some();
                 match &self.vsync {
                     Some(vsync) => vsync.set_active(busy),
@@ -903,7 +952,9 @@ impl ApplicationHandler<UserEvent> for App {
                 log::info!(":restart: attached to the new server");
                 self.state = EditorState::default();
                 self.preview.reset();
+                self.cell_sent = None;
                 if let Some(renderer) = &mut self.renderer {
+                    renderer.forget_images(None);
                     renderer.reset_animations();
                     renderer.set_panel(0.0);
                 }
@@ -911,6 +962,14 @@ impl ApplicationHandler<UserEvent> for App {
                 self.sync_grid_size();
             }
             UserEvent::Preview(event) => self.on_preview(event),
+            UserEvent::KittyData(data) => self.on_kitty(&data),
+            UserEvent::KittyDistro(distro) => self.kitty.set_distro(distro),
+            UserEvent::KittyFitted(key, image) => {
+                if let (Some(renderer), Some(window)) = (&mut self.renderer, &self.window) {
+                    renderer.add_image(key, image);
+                    window.request_redraw();
+                }
+            }
             UserEvent::Snapshot(id) => {
                 if let (Some(renderer), Some(window)) = (&mut self.renderer, &self.window) {
                     renderer.request_snapshot(crate::snapshot::path(id));

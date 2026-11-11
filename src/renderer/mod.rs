@@ -19,6 +19,7 @@ use winit::window::Window;
 
 use crate::config::Config;
 use crate::editor::{CellText, EditorState, GridChange, Layer, MAIN_GRID};
+use crate::kitty::{FitKey, Fitted};
 use crate::latency::FrameTimings;
 use crate::nvim::redraw::CursorShape;
 use crate::nvim::redraw::GridId;
@@ -46,6 +47,7 @@ pub struct Renderer {
     pipeline: CellPipeline,
     builder: RowBuilder,
     rows: HashMap<u64, (u64, Arc<RowInstances>)>,
+    kitty_images: HashMap<FitKey, Option<Arc<Fitted>>>,
     frame: u64,
     instances: Vec<Instance>,
     segments: Vec<Segment>,
@@ -150,6 +152,7 @@ impl Renderer {
             pipeline,
             builder: RowBuilder::default(),
             rows: HashMap::new(),
+            kitty_images: HashMap::new(),
             frame: 0,
             instances: Vec::new(),
             segments: Vec::new(),
@@ -529,6 +532,35 @@ impl Renderer {
         }))
     }
 
+    pub fn take_missing_images(&mut self) -> Vec<FitKey> {
+        let mut missing = std::mem::take(&mut self.builder.missing);
+        missing.sort_unstable();
+        missing.dedup();
+        missing.retain(|key| !self.kitty_images.contains_key(key));
+        for key in &missing {
+            self.kitty_images.insert(*key, None);
+        }
+        missing
+    }
+
+    pub fn add_image(&mut self, key: FitKey, image: Arc<Fitted>) {
+        if let Some(entry) = self.kitty_images.get_mut(&key) {
+            *entry = Some(image);
+            self.rows.clear();
+        }
+    }
+
+    pub fn forget_images(&mut self, ids: Option<&[u32]>) {
+        self.kitty_images
+            .retain(|key, _| ids.is_some_and(|ids| !ids.contains(&key.0)));
+        self.atlas.forget_images(ids);
+        self.rows.clear();
+    }
+
+    pub fn images_moved(&mut self) {
+        self.rows.clear();
+    }
+
     pub fn request_snapshot(&mut self, path: std::path::PathBuf) {
         self.snapshot = Some(path);
     }
@@ -592,6 +624,8 @@ impl Renderer {
                 metrics: self.fonts.metrics,
                 queue: &self.gpu.queue,
                 paint_default_bg: id != MAIN_GRID && (self.opacity >= 1.0 || floating),
+                placements: &state.images,
+                images: &self.kitty_images,
             };
             for row in &state.grids[&id].rows {
                 let (used, instances) = self.rows.entry(row.id).or_default();

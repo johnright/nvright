@@ -9,7 +9,7 @@ Nothing here is a promise, and anything that makes typing slower or text worse w
 
 - [x] **Box drawing** – borders and block characters drawn by the GUI, so they
   stay joined with any `linespace`
-- [ ] **Images in Neovim** – snacks.image through kitty graphics placeholders,
+- [x] **Images in Neovim** – snacks.image through kitty graphics placeholders,
   no ImageMagick
 - [ ] **Vulkan by default** – about half the memory of DX12 on my machine
 - [ ] **Images in markdown** – paste a screenshot or drop an image file and get

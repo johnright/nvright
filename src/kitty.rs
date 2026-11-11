@@ -1,10 +1,17 @@
-#![allow(dead_code)]
-
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use std::sync::mpsc::{Sender, channel};
+
+use image::RgbaImage;
+use image::imageops::FilterType;
+
+pub const LUA: &str = include_str!("kitty.lua");
 
 pub const PLACEHOLDER: char = '\u{10EEEE}';
 
 const MAX_PENDING: usize = 64 << 20;
+const MAX_FIT: u32 = 2000;
 
 const DIACRITICS: [u32; 297] = [
     0x0305, 0x030D, 0x030E, 0x0310, 0x0312, 0x033D, 0x033E, 0x033F, 0x0346, 0x034A,
@@ -166,6 +173,229 @@ impl Placements {
     }
 }
 
+#[derive(Debug)]
+pub struct Fitted {
+    pub x: u32,
+    pub y: u32,
+    pub width: u32,
+    pub height: u32,
+    pub rgba: Vec<u8>,
+}
+
+pub type FitKey = (u32, u32, u32);
+
+#[derive(Debug, Default)]
+pub struct Outcome {
+    pub forget: Vec<u32>,
+    pub placements_changed: bool,
+}
+
+enum Source {
+    File(PathBuf),
+    Data(Vec<u8>),
+}
+
+enum Job {
+    Load(u32, Source),
+    Fit(FitKey),
+}
+
+pub struct Kitty {
+    stream: Stream,
+    jobs: Sender<Job>,
+    chunks: Option<(u32, Vec<u8>)>,
+    distro: String,
+}
+
+impl Kitty {
+    pub fn new(sink: impl Fn(FitKey, Arc<Fitted>) + Send + 'static) -> Self {
+        Self {
+            stream: Stream::default(),
+            jobs: spawn_worker(sink),
+            chunks: None,
+            distro: String::new(),
+        }
+    }
+
+    pub fn set_distro(&mut self, distro: String) {
+        self.distro = distro;
+    }
+
+    pub fn fit(&self, key: FitKey) {
+        let _ = self.jobs.send(Job::Fit(key));
+    }
+
+    pub fn feed(&mut self, data: &[u8], placements: &mut Placements) -> Outcome {
+        let mut commands = Vec::new();
+        self.stream.push(data, &mut commands);
+        let mut outcome = Outcome::default();
+        for cmd in commands {
+            self.command(cmd, placements, &mut outcome);
+        }
+        outcome
+    }
+
+    fn command(&mut self, cmd: Command, placements: &mut Placements, outcome: &mut Outcome) {
+        if cmd.is_continuation() {
+            if let Some((_, data)) = &mut self.chunks {
+                data.extend_from_slice(&cmd.payload);
+                if cmd.num(b'm') != Some(1) {
+                    let (id, data) = self.chunks.take().unwrap();
+                    self.load(id, Source::Data(base64(&data)), outcome);
+                }
+            }
+            return;
+        }
+        let id = cmd.num(b'i').unwrap_or(0);
+        match cmd.get(b'a').unwrap_or("t") {
+            action @ ("t" | "T") => {
+                match cmd.get(b't').unwrap_or("d") {
+                    "f" | "t" => {
+                        let path = String::from_utf8_lossy(&base64(&cmd.payload)).into_owned();
+                        let path = self.host_path(&path);
+                        self.load(id, Source::File(path), outcome);
+                    }
+                    "d" if cmd.num(b'm') == Some(1) => {
+                        self.chunks = Some((id, cmd.payload.clone()));
+                    }
+                    "d" => self.load(id, Source::Data(base64(&cmd.payload)), outcome),
+                    other => log::debug!("kitty: transmission medium {other} not supported"),
+                }
+                if action == "T" {
+                    self.place(id, &cmd, placements, outcome);
+                }
+            }
+            "p" => self.place(id, &cmd, placements, outcome),
+            "d" => {
+                match (cmd.get(b'd').unwrap_or("a"), cmd.num(b'p')) {
+                    ("i" | "I", Some(p)) => {
+                        placements.map.remove(&(id, p));
+                    }
+                    ("i" | "I", None) => placements.map.retain(|&(i, _), _| i != id),
+                    ("a" | "A", _) => placements.map.clear(),
+                    (other, _) => log::debug!("kitty: delete {other} not supported"),
+                }
+                outcome.placements_changed = true;
+            }
+            other => log::debug!("kitty: action {other} not supported"),
+        }
+    }
+
+    fn place(&self, id: u32, cmd: &Command, placements: &mut Placements, outcome: &mut Outcome) {
+        if cmd.num(b'U') != Some(1) {
+            log::debug!("kitty: only virtual placements are supported");
+            return;
+        }
+        let (Some(cols), Some(rows)) = (cmd.num(b'c'), cmd.num(b'r')) else {
+            log::debug!("kitty: placement without a size");
+            return;
+        };
+        let p = cmd.num(b'p').unwrap_or(0);
+        placements.map.insert((id, p), (cols as u16, rows as u16));
+        outcome.placements_changed = true;
+    }
+
+    fn load(&self, id: u32, source: Source, outcome: &mut Outcome) {
+        outcome.forget.push(id);
+        let _ = self.jobs.send(Job::Load(id, source));
+    }
+
+    fn host_path(&self, linux: &str) -> PathBuf {
+        host_path(&self.distro, linux)
+    }
+}
+
+pub fn host_path(distro: &str, linux: &str) -> PathBuf {
+    if distro.is_empty() {
+        PathBuf::from(linux)
+    } else {
+        PathBuf::from(format!(
+            r"\\wsl.localhost\{distro}{}",
+            linux.replace('/', "\\")
+        ))
+    }
+}
+
+pub fn dimensions(path: &Path) -> Result<(u32, u32), String> {
+    let is_svg = path
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("svg"));
+    if is_svg {
+        let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
+        return crate::preview::decode_image(&bytes, 1, 1.0, None).map(|img| img.natural);
+    }
+    image::ImageReader::open(path)
+        .map_err(|e| e.to_string())?
+        .with_guessed_format()
+        .map_err(|e| e.to_string())?
+        .into_dimensions()
+        .map_err(|e| e.to_string())
+}
+
+fn spawn_worker(sink: impl Fn(FitKey, Arc<Fitted>) + Send + 'static) -> Sender<Job> {
+    let (tx, rx) = channel::<Job>();
+    let spawned = std::thread::Builder::new()
+        .name("kitty images".into())
+        .spawn(move || {
+            let mut images: HashMap<u32, RgbaImage> = HashMap::new();
+            while let Ok(job) = rx.recv() {
+                match job {
+                    Job::Load(id, source) => match decode(source) {
+                        Ok(image) => {
+                            log::debug!("kitty: image {id} {}x{}", image.width(), image.height());
+                            images.insert(id, image);
+                        }
+                        Err(err) => log::warn!("kitty: image {id}: {err}"),
+                    },
+                    Job::Fit(key) => {
+                        if let Some(image) = images.get(&key.0)
+                            && let Some(fitted) = fit(image, key.1, key.2)
+                        {
+                            sink(key, Arc::new(fitted));
+                        }
+                    }
+                }
+            }
+        });
+    if let Err(err) = spawned {
+        log::error!("kitty: image thread not started: {err}");
+    }
+    tx
+}
+
+fn decode(source: Source) -> Result<RgbaImage, String> {
+    let bytes = match source {
+        Source::File(path) => std::fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?,
+        Source::Data(bytes) => bytes,
+    };
+    let image = crate::preview::decode_image(&bytes, 0, 2.0, None)?;
+    RgbaImage::from_raw(image.width, image.height, image.rgba)
+        .ok_or_else(|| "bad image buffer".to_string())
+}
+
+fn fit(image: &RgbaImage, box_w: u32, box_h: u32) -> Option<Fitted> {
+    if box_w == 0 || box_h == 0 || box_w > MAX_FIT || box_h > MAX_FIT {
+        log::warn!("kitty: {box_w}x{box_h} is too large to draw");
+        return None;
+    }
+    let (iw, ih) = (image.width() as f32, image.height() as f32);
+    let scale = (box_w as f32 / iw).min(box_h as f32 / ih);
+    let width = ((iw * scale).round() as u32).clamp(1, box_w);
+    let height = ((ih * scale).round() as u32).clamp(1, box_h);
+    let scaled = if (width, height) == image.dimensions() {
+        image.clone()
+    } else {
+        image::imageops::resize(image, width, height, FilterType::CatmullRom)
+    };
+    Some(Fitted {
+        x: (box_w - width) / 2,
+        y: (box_h - height) / 2,
+        width,
+        height,
+        rgba: scaled.into_raw(),
+    })
+}
+
 fn base64(input: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(input.len() * 3 / 4);
     let (mut acc, mut bits) = (0u32, 0);
@@ -187,7 +417,6 @@ fn base64(input: &[u8]) -> Vec<u8> {
     }
     out
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -215,5 +444,12 @@ mod tests {
     #[test]
     fn base64_decodes() {
         assert_eq!(base64(b"L3RtcC9hLnBuZw=="), b"/tmp/a.png");
+    }
+
+    #[test]
+    fn fit_centers() {
+        let image = RgbaImage::new(100, 50);
+        let f = fit(&image, 40, 40).unwrap();
+        assert_eq!((f.x, f.y, f.width, f.height), (0, 10, 40, 20));
     }
 }

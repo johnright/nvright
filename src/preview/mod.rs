@@ -511,7 +511,7 @@ fn is_svg(bytes: &[u8]) -> bool {
     head.starts_with('<') && (head.contains("<svg") || head.starts_with("<?xml"))
 }
 
-fn decode_image(
+pub fn decode_image(
     bytes: &[u8],
     max_width: u32,
     scale: f32,

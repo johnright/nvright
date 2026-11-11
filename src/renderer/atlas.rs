@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use cosmic_text::CacheKey;
 
 use super::boxdraw;
+use crate::kitty::{FitKey, Fitted};
 use super::font::{CellMetrics, Fonts};
 use super::raster::{Coverage, RasterGlyph, Rasterizer};
 
@@ -26,6 +27,7 @@ pub struct Atlas {
     pub view: wgpu::TextureView,
     glyphs: HashMap<CacheKey, Option<AtlasGlyph>>,
     drawn: HashMap<char, AtlasGlyph>,
+    images: HashMap<FitKey, AtlasGlyph>,
     cursor_x: u32,
     cursor_y: u32,
     shelf_height: u32,
@@ -53,6 +55,7 @@ impl Atlas {
             view,
             glyphs: HashMap::new(),
             drawn: HashMap::new(),
+            images: HashMap::new(),
             cursor_x: 0,
             cursor_y: 0,
             shelf_height: 0,
@@ -62,6 +65,7 @@ impl Atlas {
     pub fn clear(&mut self) {
         self.glyphs.clear();
         self.drawn.clear();
+        self.images.clear();
         self.cursor_x = 0;
         self.cursor_y = 0;
         self.shelf_height = 0;
@@ -102,12 +106,50 @@ impl Atlas {
         Ok(Some(glyph))
     }
 
+    pub fn get_image(
+        &mut self,
+        key: FitKey,
+        image: &Fitted,
+        queue: &wgpu::Queue,
+    ) -> Result<AtlasGlyph, AtlasFull> {
+        if let Some(glyph) = self.images.get(&key) {
+            return Ok(*glyph);
+        }
+        let glyph = self.upload_rgba(&image.rgba, image.width, image.height, queue)?;
+        let glyph = AtlasGlyph {
+            coverage: Coverage::Color,
+            ..glyph
+        };
+        self.images.insert(key, glyph);
+        Ok(glyph)
+    }
+
+    pub fn forget_images(&mut self, ids: Option<&[u32]>) {
+        self.images
+            .retain(|key, _| ids.is_some_and(|ids| !ids.contains(&key.0)));
+    }
+
     fn upload(
         &mut self,
         image: &RasterGlyph,
         queue: &wgpu::Queue,
     ) -> Result<AtlasGlyph, AtlasFull> {
-        let (w, h) = (image.width, image.height);
+        let glyph = self.upload_rgba(&image.rgba, image.width, image.height, queue)?;
+        Ok(AtlasGlyph {
+            left: image.left as i16,
+            top: image.top as i16,
+            coverage: image.coverage,
+            ..glyph
+        })
+    }
+
+    fn upload_rgba(
+        &mut self,
+        rgba: &[u8],
+        w: u32,
+        h: u32,
+        queue: &wgpu::Queue,
+    ) -> Result<AtlasGlyph, AtlasFull> {
         let (x, y) = self.allocate(w, h)?;
         queue.write_texture(
             wgpu::TexelCopyTextureInfo {
@@ -116,7 +158,7 @@ impl Atlas {
                 origin: wgpu::Origin3d { x, y, z: 0 },
                 aspect: wgpu::TextureAspect::All,
             },
-            &image.rgba,
+            rgba,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
                 bytes_per_row: Some(w * 4),
@@ -131,9 +173,9 @@ impl Atlas {
         Ok(AtlasGlyph {
             uv: [x as u16, y as u16],
             size: [w as u16, h as u16],
-            left: image.left as i16,
-            top: image.top as i16,
-            coverage: image.coverage,
+            left: 0,
+            top: 0,
+            coverage: Coverage::Mask,
         })
     }
 

@@ -151,6 +151,9 @@ async fn install_lua(nvim: nvim_rs::Neovim<Writer>) {
     if let Err(err) = nvim.exec_lua(crate::preview::LUA, vec![id.into()]).await {
         log::warn!("markdown preview not installed in nvim: {err}");
     }
+    if let Err(err) = nvim.exec_lua(crate::kitty::LUA, vec![id.into()]).await {
+        log::warn!("kitty graphics not set up in nvim: {err}");
+    }
 }
 
 async fn command_loop(

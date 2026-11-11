@@ -1,3 +1,6 @@
+use std::collections::HashMap;
+use std::sync::Arc;
+
 use super::atlas::{Atlas, AtlasFull};
 use super::font::{CellMetrics, FontStyle, Fonts};
 use super::pipeline::{
@@ -6,6 +9,7 @@ use super::pipeline::{
 };
 use super::raster::{Coverage, Rasterizer};
 use crate::editor::{CellText, HlTable, Row, TextInterner};
+use crate::kitty::{FitKey, Fitted, Placeholder, Placements};
 
 #[derive(Debug, Default, Clone)]
 pub struct RowInstances {
@@ -50,6 +54,8 @@ fn push_to_cell(glyph: Instance, m: &CellMetrics, out: &mut Vec<Instance>) {
 pub struct RowBuilder {
     seg_text: String,
     seg_map: Vec<(u32, u16)>,
+    prev_image: Option<(u32, u16, u16, usize)>,
+    pub missing: Vec<FitKey>,
 }
 
 pub struct RowContext<'a> {
@@ -58,6 +64,8 @@ pub struct RowContext<'a> {
     pub metrics: CellMetrics,
     pub queue: &'a wgpu::Queue,
     pub paint_default_bg: bool,
+    pub placements: &'a Placements,
+    pub images: &'a HashMap<FitKey, Option<Arc<Fitted>>>,
 }
 
 fn font_style(hl: &HlTable, id: u32) -> FontStyle {
@@ -69,6 +77,63 @@ fn font_style(hl: &HlTable, id: u32) -> FontStyle {
 }
 
 impl RowBuilder {
+    fn image_cell(
+        &mut self,
+        col: usize,
+        hl: u32,
+        p: Placeholder,
+        ctx: &RowContext<'_>,
+        atlas: &mut Atlas,
+        out: &mut RowInstances,
+    ) -> Result<(), AtlasFull> {
+        let attr = ctx.hl.attr(hl);
+        let Some(fg) = attr.foreground else {
+            return Ok(());
+        };
+        let id = fg | (p.id_msb.unwrap_or(0) as u32) << 24;
+        let prev = self
+            .prev_image
+            .filter(|&(prev_id, _, _, prev_col)| prev_id == id && prev_col + 1 == col);
+        let row = p.row.or(prev.map(|p| p.1)).unwrap_or(0);
+        let icol = p.col.or(prev.map(|p| p.2 + 1)).unwrap_or(0);
+        self.prev_image = Some((id, row, icol, col));
+
+        let Some((cols, rows)) = ctx.placements.get(id, attr.special.unwrap_or(0)) else {
+            return Ok(());
+        };
+        let m = ctx.metrics;
+        let key = (
+            id,
+            cols as u32 * m.width as u32,
+            rows as u32 * m.height as u32,
+        );
+        let Some(entry) = ctx.images.get(&key) else {
+            self.missing.push(key);
+            return Ok(());
+        };
+        let Some(image) = entry else {
+            return Ok(());
+        };
+        let ag = atlas.get_image(key, image, ctx.queue)?;
+        let (cx, cy) = (icol as f32 * m.width, row as f32 * m.height);
+        let (ix, iy) = (image.x as f32, image.y as f32);
+        let x0 = cx.max(ix);
+        let y0 = cy.max(iy);
+        let x1 = (cx + m.width).min(ix + image.width as f32);
+        let y1 = (cy + m.height).min(iy + image.height as f32);
+        if x1 <= x0 || y1 <= y0 {
+            return Ok(());
+        }
+        out.fg.push(Instance {
+            pos: [col as f32 * m.width + x0 - cx, y0 - cy],
+            size: [x1 - x0, y1 - y0],
+            uv: [ag.uv[0] as f32 + x0 - ix, ag.uv[1] as f32 + y0 - iy],
+            color: u32::MAX,
+            kind: KIND_COLOR,
+        });
+        Ok(())
+    }
+
     pub fn build(
         &mut self,
         row: &Row,
@@ -108,10 +173,16 @@ impl RowBuilder {
             }
         }
 
+        self.prev_image = None;
         let mut col = 0;
         while col < cells.len() {
             let first = cells[col];
             if first.text == CellText::SPACE || first.text == CellText::EMPTY {
+                col += 1;
+                continue;
+            }
+            if let Some(p) = ctx.text.placeholder(first.text) {
+                self.image_cell(col, first.hl, p, ctx, atlas, out)?;
                 col += 1;
                 continue;
             }
@@ -120,7 +191,7 @@ impl RowBuilder {
             self.seg_map.clear();
             while col < cells.len() {
                 let cell = cells[col];
-                if cell.text == CellText::SPACE {
+                if cell.text == CellText::SPACE || ctx.text.placeholder(cell.text).is_some() {
                     break;
                 }
                 if cell.text != CellText::EMPTY {
