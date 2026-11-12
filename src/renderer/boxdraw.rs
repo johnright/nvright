@@ -1,7 +1,6 @@
 //! Box drawing and block elements drawn to the cell instead of taken from the
 //! font. The font's glyphs only span its own line, so with 'linespace' they
 //! don't meet, and diagonals and ClearType fringes never line up across rows.
-//! Double lines aren't covered yet, those still come from the font.
 
 use super::font::CellMetrics;
 use super::raster::{Coverage, RasterGlyph};
@@ -84,6 +83,39 @@ const LINES: [[u8; 4]; 76] = [
     [2, 1, 2, 2],
     [2, 2, 2, 1],
     [2, 2, 2, 2], // ╋
+];
+
+// 2 = double
+const DOUBLE_LINES: [[u8; 4]; 29] = [
+    [0, 2, 0, 2], // ═
+    [2, 0, 2, 0],
+    [0, 2, 1, 0], // ╒
+    [0, 1, 2, 0],
+    [0, 2, 2, 0],
+    [0, 0, 1, 2], // ╕
+    [0, 0, 2, 1],
+    [0, 0, 2, 2],
+    [1, 2, 0, 0], // ╘
+    [2, 1, 0, 0],
+    [2, 2, 0, 0],
+    [1, 0, 0, 2], // ╛
+    [2, 0, 0, 1],
+    [2, 0, 0, 2],
+    [1, 2, 1, 0], // ╞
+    [2, 1, 2, 0],
+    [2, 2, 2, 0],
+    [1, 0, 1, 2], // ╡
+    [2, 0, 2, 1],
+    [2, 0, 2, 2],
+    [0, 2, 1, 2], // ╤
+    [0, 1, 2, 1],
+    [0, 2, 2, 2],
+    [1, 2, 0, 2], // ╧
+    [2, 1, 0, 1],
+    [2, 2, 0, 2],
+    [1, 2, 1, 2], // ╪
+    [2, 1, 2, 1],
+    [2, 2, 2, 2], // ╬
 ];
 
 const HALF_LINES: [[u8; 4]; 12] = [
@@ -169,6 +201,107 @@ impl Canvas {
             let y = self.y0(tr);
             let x = self.x0(across_v.max(tr));
             self.rect(x, y, self.w, y + tr, 1.0);
+        }
+    }
+
+    fn double_lines(&mut self, [up, right, down, left]: [u8; 4]) {
+        let t = self.light as i32;
+        let (w, h) = (self.w as i32, self.h as i32);
+        let (c, m, s) = (self.x0(self.light) as i32, self.y0(self.light) as i32, t);
+        let mut rect = |x0: i32, y0: i32, x1: i32, y1: i32| {
+            let clamp = |v: i32| v.max(0) as usize;
+            self.rect(clamp(x0), clamp(y0), clamp(x1), clamp(y1), 1.0);
+        };
+        let doubled_h = left == 2 || right == 2;
+        let doubled_v = up == 2 || down == 2;
+
+        match up {
+            2 => {
+                let end = |near: u8, far: u8| match near {
+                    2 => m - s + t,
+                    1 => m + t,
+                    _ if down == 2 => h,
+                    _ if far == 2 => m + s + t,
+                    _ => m + t,
+                };
+                rect(c - s, 0, c - s + t, end(left, right));
+                rect(c + s, 0, c + s + t, end(right, left));
+            }
+            1 => {
+                let end = match () {
+                    _ if !doubled_h => m + t,
+                    _ if down == 0 && left == 2 && right == 2 => m - s + t,
+                    _ => m + s + t,
+                };
+                rect(c, 0, c + t, end);
+            }
+            _ => {}
+        }
+        match down {
+            2 => {
+                let start = |near: u8, far: u8| match near {
+                    2 => m + s,
+                    1 => m,
+                    _ if up == 2 => 0,
+                    _ if far == 2 => m - s,
+                    _ => m,
+                };
+                rect(c - s, start(left, right), c - s + t, h);
+                rect(c + s, start(right, left), c + s + t, h);
+            }
+            1 => {
+                let start = match () {
+                    _ if !doubled_h => m,
+                    _ if up == 0 && left == 2 && right == 2 => m + s,
+                    _ => m - s,
+                };
+                rect(c, start, c + t, h);
+            }
+            _ => {}
+        }
+        match right {
+            2 => {
+                let start = |near: u8, far: u8| match near {
+                    2 => c + s,
+                    1 => c,
+                    _ if left == 2 => 0,
+                    _ if far == 2 => c - s,
+                    _ => c,
+                };
+                rect(start(up, down), m - s, w, m - s + t);
+                rect(start(down, up), m + s, w, m + s + t);
+            }
+            1 => {
+                let start = match () {
+                    _ if !doubled_v => c,
+                    _ if left == 0 && up == 2 && down == 2 => c + s,
+                    _ => c - s,
+                };
+                rect(start, m, w, m + t);
+            }
+            _ => {}
+        }
+        match left {
+            2 => {
+                let end = |near: u8, far: u8| match near {
+                    2 => c - s + t,
+                    1 => c + t,
+                    _ if right == 2 => w,
+                    _ if far == 2 => c + s + t,
+                    _ => c + t,
+                };
+                rect(0, m - s, end(up, down), m - s + t);
+                rect(0, m + s, end(down, up), m + s + t);
+            }
+            1 => {
+                let end = match () {
+                    _ if !doubled_v => c + t,
+                    _ if right == 0 && up == 2 && down == 2 => c - s + t,
+                    _ => c + s + t,
+                };
+                rect(0, m, end, m + t);
+            }
+            _ => {}
         }
     }
 
@@ -277,7 +410,7 @@ impl Canvas {
 }
 
 pub fn is_drawn(c: char) -> bool {
-    matches!(c, '\u{2500}'..='\u{254f}' | '\u{256d}'..='\u{259f}')
+    ('\u{2500}'..='\u{259f}').contains(&c)
 }
 
 pub fn rasterize(c: char, m: &CellMetrics) -> Option<RasterGlyph> {
@@ -309,6 +442,7 @@ pub fn rasterize(c: char, m: &CellMetrics) -> Option<RasterGlyph> {
             let k = c as u32 - 0x254c;
             canvas.dashes(2, k % 2 == 1, k >= 2);
         }
+        '\u{2550}'..='\u{256c}' => canvas.double_lines(DOUBLE_LINES[c as usize - 0x2550]),
         '\u{256d}' => canvas.arc(1.0, 1.0),
         '\u{256e}' => canvas.arc(-1.0, 1.0),
         '\u{256f}' => canvas.arc(-1.0, -1.0),
@@ -351,8 +485,6 @@ mod tests {
             strikeout_y: height / 2.0,
             stroke: 1.0,
             box_stroke: 1.0,
-            gap_top: 0.0,
-            gap_bottom: 0.0,
         }
     }
 
@@ -387,7 +519,20 @@ mod tests {
     }
 
     #[test]
-    fn double_lines_left_to_the_font() {
-        assert!(rasterize('═', &metrics(11.0, 29.0)).is_none());
+    fn double_corner_nests() {
+        let g = rasterize('╔', &metrics(11.0, 29.0)).unwrap();
+        assert_eq!(alpha(&g, 4, 13), 255);
+        assert_eq!(alpha(&g, 6, 15), 255);
+        assert_eq!(alpha(&g, 6, 13), 255);
+        assert_eq!(alpha(&g, 5, 14), 0);
+        assert_eq!(alpha(&g, 4, 12), 0);
+    }
+
+    #[test]
+    fn double_cross_is_open_in_the_middle() {
+        let g = rasterize('╬', &metrics(11.0, 29.0)).unwrap();
+        assert_eq!(alpha(&g, 5, 14), 0);
+        assert_eq!(alpha(&g, 4, 0), 255);
+        assert_eq!(alpha(&g, 0, 13), 255);
     }
 }

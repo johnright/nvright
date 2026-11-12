@@ -146,6 +146,24 @@ pub fn parse_wsl_unc(path: &str) -> Option<(String, String)> {
     Some((distro.to_string(), linux))
 }
 
+pub fn nvim_path(launch: &NvimLaunch, path: &str) -> String {
+    if launch.no_wsl {
+        return path.to_string();
+    }
+    if let Some((_, linux)) = parse_wsl_unc(path) {
+        return linux;
+    }
+    let path = path.strip_prefix(r"\\?\").unwrap_or(path);
+    match path.as_bytes() {
+        [drive, b':', ..] if drive.is_ascii_alphabetic() => format!(
+            "/mnt/{}{}",
+            drive.to_ascii_lowercase() as char,
+            path[2..].replace('\\', "/")
+        ),
+        _ => path.replace('\\', "/"),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,10 +208,20 @@ mod tests {
     }
 
     #[test]
+    fn dropped_paths() {
+        let wsl = NvimLaunch::default();
+        assert_eq!(nvim_path(&wsl, r"C:\Users\me\a b.txt"), "/mnt/c/Users/me/a b.txt");
+        assert_eq!(
+            nvim_path(&wsl, r"\\wsl.localhost\cachyos\home\me\x.rs"),
+            "/home/me/x.rs"
+        );
+    }
+
+    #[test]
     fn parses_wsl_unc_paths() {
         assert_eq!(
-            parse_wsl_unc(r"\\wsl.localhost\archlinux\home\john\dev"),
-            Some(("archlinux".into(), "/home/john/dev".into()))
+            parse_wsl_unc(r"\\wsl.localhost\archlinux\home\me\dev"),
+            Some(("archlinux".into(), "/home/me/dev".into()))
         );
         assert_eq!(
             parse_wsl_unc(r"\\?\UNC\wsl$\Ubuntu\tmp\"),
@@ -203,7 +231,7 @@ mod tests {
             parse_wsl_unc(r"\\wsl.localhost\Ubuntu"),
             Some(("Ubuntu".into(), "/".into()))
         );
-        assert_eq!(parse_wsl_unc(r"C:\Users\john"), None);
+        assert_eq!(parse_wsl_unc(r"C:\Users\me"), None);
         assert_eq!(parse_wsl_unc(r"\\server\share\x"), None);
     }
 }

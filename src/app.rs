@@ -849,6 +849,14 @@ impl ApplicationHandler<UserEvent> for App {
                 }
                 return;
             }
+            WindowEvent::DroppedFile(path) => {
+                let path = crate::nvim::launch::nvim_path(&self.config.nvim, &path.to_string_lossy());
+                // log::info!("dropped {path}");
+                self.send(NvimCommand::Lua(
+                    "vim.cmd.drop(vim.fn.fnameescape(...))".into(),
+                    vec![path.into()],
+                ));
+            }
             WindowEvent::CloseRequested => {
                 if self.nvim.send(NvimCommand::Quit).is_err() {
                     event_loop.exit();
