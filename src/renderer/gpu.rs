@@ -23,8 +23,10 @@ impl Gpu {
         transparent: bool,
         readable: bool,
     ) -> Result<Self> {
-        let candidates: &[wgpu::Backends] = if cfg!(windows) {
-            &[wgpu::Backends::DX12, wgpu::Backends::VULKAN]
+        let candidates: &[wgpu::Backends] = if cfg!(windows) && transparent {
+            &[wgpu::Backends::DX12]
+        } else if cfg!(windows) {
+            &[wgpu::Backends::VULKAN, wgpu::Backends::DX12]
         } else {
             &[wgpu::Backends::PRIMARY]
         };

@@ -11,7 +11,7 @@ Nothing here is a promise, and anything that makes typing slower or text worse w
   stay joined with any `linespace`
 - [x] **Images in Neovim** – snacks.image through kitty graphics placeholders,
   no ImageMagick
-- [ ] **Vulkan by default** – about half the memory of DX12 on my machine
+- [x] **Vulkan by default** – about half the memory of DX12 on my machine
 - [ ] **Images in markdown** – paste a screenshot or drop an image file and get
   a link
 - [x] **New name: nvright** – right_editor said nothing about Neovim
