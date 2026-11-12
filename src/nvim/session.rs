@@ -189,49 +189,50 @@ async fn execute(nvim: &nvim_rs::Neovim<Writer>, cmd: NvimCommand) {
         NvimCommand::Quit => "confirm qa".to_string(),
         NvimCommand::Lua(code, args) => format!("exec_lua {code:?} {args:?}"),
     };
-    let result = match cmd {
-        NvimCommand::Input(keys) => nvim.input(&keys).await.map(drop),
-        NvimCommand::Mouse {
-            button,
-            action,
-            modifier,
-            grid,
-            row,
-            col,
-        } => {
-            nvim.input_mouse(
+    let nvim = nvim.clone();
+    let mut request = Box::pin(async move {
+        let result = match cmd {
+            NvimCommand::Input(keys) => nvim.input(&keys).await.map(drop),
+            NvimCommand::Mouse {
                 button,
                 action,
-                &modifier,
-                grid as i64,
-                row as i64,
-                col as i64,
-            )
-            .await
+                modifier,
+                grid,
+                row,
+                col,
+            } => {
+                nvim.input_mouse(
+                    button,
+                    action,
+                    &modifier,
+                    grid as i64,
+                    row as i64,
+                    col as i64,
+                )
+                .await
+            }
+            NvimCommand::Resize { cols, rows } => nvim.ui_try_resize(cols as i64, rows as i64).await,
+            NvimCommand::Focus(gained) => nvim.ui_set_focus(gained).await,
+            NvimCommand::Paste(text) => nvim.paste(&text, true, -1).await.map(drop),
+            NvimCommand::Lua(code, args) => nvim.exec_lua(&code, args).await.map(drop),
+            NvimCommand::Quit => nvim.command("confirm qa").await,
+        };
+        let elapsed = started.elapsed();
+        if elapsed > SLOW_RESPONSE {
+            log::warn!(
+                "slow nvim reply to {what}: {} ms",
+                elapsed.as_millis()
+            );
         }
-        NvimCommand::Resize { cols, rows } => nvim.ui_try_resize(cols as i64, rows as i64).await,
-        NvimCommand::Focus(gained) => nvim.ui_set_focus(gained).await,
-        NvimCommand::Paste(text) => nvim.paste(&text, true, -1).await.map(drop),
-        NvimCommand::Lua(code, args) => nvim.exec_lua(&code, args).await.map(drop),
-        NvimCommand::Quit => {
-            let nvim = nvim.clone();
-            tokio::spawn(async move {
-                if let Err(err) = nvim.command("confirm qa").await {
-                    log::debug!("confirm qa: {err}");
-                }
-            });
-            return;
+        match result {
+            Err(err) if what == "confirm qa" => log::debug!("{what}: {err}"),
+            Err(err) => log::warn!("nvim request failed ({what}): {err}"),
+            Ok(()) => {}
         }
-    };
-    let elapsed = started.elapsed();
-    if elapsed > SLOW_RESPONSE {
-        log::warn!(
-            "slow nvim reply to {what}: {} ms",
-            elapsed.as_millis()
-        );
-    }
-    if let Err(err) = result {
-        log::warn!("nvim request failed ({what}): {err}");
+    });
+    if tokio::time::timeout(SLOW_RESPONSE, &mut request).await.is_err() {
+        // log::debug!("not waiting for nvim any longer");
+        tokio::spawn(request);
     }
 }
 
