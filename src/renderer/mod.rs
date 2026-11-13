@@ -31,7 +31,8 @@ use font::{FontRequest, Fonts};
 use gpu::{Frame, Gpu};
 use image_pipeline::{ImagePipeline, ImageQuad, ImageTexture};
 use pipeline::{
-    CellPipeline, CursorPipeline, Instance, KIND_SHADOW, KIND_SOLID, Segment, pack_rgb, pack_rgba,
+    CellPipeline, CursorPipeline, Instance, KIND_ROUNDED, KIND_SHADOW, KIND_SOLID, Segment, pack_rgb,
+    pack_rgba,
 };
 
 type Placed = (GridId, i64, i64);
@@ -54,6 +55,8 @@ pub struct Renderer {
     background: u32,
     opacity: f32,
     snapshot: Option<std::path::PathBuf>,
+    bars: HashMap<GridId, crate::scrollbar::Bar>,
+    bar_hover: Option<(GridId, bool)>,
     record: Option<crate::snapshot::Recorder>,
     cursor: CursorAnimation,
     cursor_duration: Duration,
@@ -159,6 +162,8 @@ impl Renderer {
             background: (r as u32) << 16 | (g as u32) << 8 | b as u32,
             opacity: config.opacity,
             snapshot: None,
+            bars: HashMap::new(),
+            bar_hover: None,
             record: crate::snapshot::Recorder::from_env(),
             cursor: CursorAnimation::new(),
             cursor_duration: Duration::from_millis(config.cursor_animation_ms),
@@ -410,6 +415,7 @@ impl Renderer {
             }
         }
         self.scrolling.retain(|id, _| state.grids.contains_key(id));
+        self.bars.retain(|id, _| state.grids.contains_key(id));
         let mut scrolling = false;
         for s in self.scrolling.values_mut() {
             scrolling |= s.prune(acquired);
@@ -426,7 +432,8 @@ impl Renderer {
             || cursor_moving
             || !self.fades.is_empty()
             || !self.slides.is_empty()
-            || self.preview.animating;
+            || self.preview.animating
+            || self.bars.values().any(|b| b.fading(acquired));
         let rows = &self.rows;
         for &(id, _, _) in &order {
             self.scrolling.entry(id).or_default().set_snapshot(
@@ -559,6 +566,14 @@ impl Renderer {
 
     pub fn images_moved(&mut self) {
         self.rows.clear();
+    }
+
+    pub fn set_bar_hover(&mut self, hover: Option<(GridId, bool)>) {
+        self.bar_hover = hover;
+    }
+
+    pub fn bar_width(&self) -> f32 {
+        (self.fonts.metrics.width * 0.55).round().max(4.0)
     }
 
     pub fn request_snapshot(&mut self, path: std::path::PathBuf) {
@@ -886,6 +901,28 @@ impl Renderer {
                 row_offset[top..bot].fill(offset);
             }
 
+            if state
+                .placements
+                .get(&id)
+                .is_some_and(|p| p.layer == Layer::Window && !p.hidden)
+            {
+                let bar = BarCtx {
+                    hover: self.bar_hover,
+                    width: self.bar_width(),
+                    min: 2.0 * m.height,
+                };
+                push_scrollbar(
+                    &mut self.instances,
+                    &mut self.segments,
+                    &mut self.bars,
+                    bar,
+                    id,
+                    [ox, oy, gw, gh],
+                    state,
+                    now,
+                );
+            }
+
             if id == cursor.grid && cursor.row < grid.height() && cursor.col < grid.width() {
                 let text = rows[cursor.row]
                     .fg
@@ -1117,6 +1154,98 @@ impl Renderer {
         let t = now.saturating_duration_since(since).as_secs_f32() / 0.12;
         (self.backdrop * t.min(1.0), t < 1.0)
     }
+}
+
+#[derive(Clone, Copy)]
+struct BarCtx {
+    hover: Option<(GridId, bool)>,
+    width: f32,
+    min: f32,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn push_scrollbar(
+    instances: &mut Vec<Instance>,
+    segments: &mut Vec<Segment>,
+    bars: &mut HashMap<GridId, crate::scrollbar::Bar>,
+    ctx: BarCtx,
+    id: GridId,
+    [x, y, w, h]: [f32; 4],
+    state: &EditorState,
+    now: Instant,
+) {
+    use crate::scrollbar::{Bar, mark_y, scrollable, thumb};
+
+    let Some(view) = state.viewports.get(&id).copied() else {
+        return;
+    };
+    let marks = state.marks.get(&view.win).map_or(&[][..], Vec::as_slice);
+    let digest = {
+        use std::hash::{Hash, Hasher};
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        marks.hash(&mut hasher);
+        hasher.finish()
+    };
+    let bar = bars.entry(id).or_insert(Bar {
+        view,
+        marks: digest,
+        until: now,
+    });
+    if bar.view != view || bar.marks != digest {
+        if bar.view.win == view.win && bar.view.lines != 0 {
+            bar.poke(now);
+        }
+        bar.view = view;
+        bar.marks = digest;
+    }
+    let (hover, dragging) = match ctx.hover {
+        Some((g, d)) if g == id => (true, d),
+        _ => (false, false),
+    };
+    if hover {
+        bar.poke(now);
+    }
+    let alpha = bar.alpha(now);
+    if alpha <= 0.0 || !(scrollable(&view) || !marks.is_empty()) {
+        return;
+    }
+    let bw = ctx.width;
+    let bx = x + w - bw - 2.0;
+    let fg = state.hl.defaults().fg;
+    let a = |v: f32| (v * alpha * 255.0).round() as u8;
+    let start = instances.len() as u32;
+    if hover {
+        instances.push(Instance {
+            color: pack_rgba(fg, a(0.06)),
+            kind: KIND_ROUNDED,
+            ..Instance::solid(bx, y + 2.0, bw, h - 4.0, 0)
+        });
+    }
+    if scrollable(&view) {
+        let (ty, th) = thumb(&view, h - 4.0, ctx.min);
+        let level = if dragging { 0.5 } else if hover { 0.4 } else { 0.28 };
+        instances.push(Instance {
+            color: pack_rgba(fg, a(level)),
+            kind: KIND_ROUNDED,
+            ..Instance::solid(bx, y + 2.0 + ty, bw, th, 0)
+        });
+    }
+    let mh = (bw / 2.0).round().max(2.0);
+    for &(line, kind) in marks {
+        let Some(&rgb) = state.mark_colors.get(kind as usize - 1) else {
+            continue;
+        };
+        let my = y + 2.0 + mark_y(line, view.lines, h - 4.0 - mh);
+        instances.push(Instance {
+            color: pack_rgba(rgb, a(0.9)),
+            ..Instance::solid(bx, my.round(), bw, mh, 0)
+        });
+    }
+    segments.push(Segment {
+        range: start..instances.len() as u32,
+        scissor: Some(scissor(x, y, w, h)),
+        replace: false,
+    });
 }
 
 fn fade_alpha(elapsed: Duration, duration: Duration) -> f32 {

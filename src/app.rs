@@ -14,7 +14,7 @@ use cosmic_text::FontSystem;
 use tokio::sync::mpsc::UnboundedSender;
 
 use crate::config::Config;
-use crate::editor::{EditorState, MAIN_GRID};
+use crate::editor::{EditorState, Layer, MAIN_GRID};
 use crate::input::{self, Mods};
 use crate::latency::Latency;
 use crate::nvim::NvimCommand;
@@ -45,6 +45,7 @@ pub enum UserEvent {
     KittyData(Vec<u8>),
     KittyDistro(String),
     KittyFitted(FitKey, Arc<Fitted>),
+    Marks(crate::scrollbar::MarksEvent),
 }
 
 pub struct App {
@@ -65,6 +66,9 @@ pub struct App {
     zoom_accum: f64,
     dragging: Option<&'static str>,
     drag_grid: Option<(u64, i64, i64)>,
+    bar_hover: Option<u64>,
+    bar_drag: Option<u64>,
+    bar_sent: Option<u64>,
     last_mouse_cell: Option<(u64, u64)>,
     pointer_visible: bool,
     latency: Option<Latency>,
@@ -151,6 +155,9 @@ impl App {
             zoom_accum: 0.0,
             dragging: None,
             drag_grid: None,
+            bar_hover: None,
+            bar_drag: None,
+            bar_sent: None,
             last_mouse_cell: None,
             pointer_visible: true,
             latency,
@@ -641,6 +648,64 @@ impl App {
         });
     }
 
+    fn window_rect(&self, id: u64) -> Option<(f64, f64, f64)> {
+        let (cw, ch) = self.renderer.as_ref()?.cell_size();
+        let p = self.state.placements.get(&id)?;
+        let g = self.state.grids.get(&id)?;
+        Some((
+            (p.col as f64 + g.width() as f64) * cw as f64,
+            p.row as f64 * ch as f64,
+            g.height() as f64 * ch as f64,
+        ))
+    }
+
+    fn bar_at(&self) -> Option<u64> {
+        let zone = (self.renderer.as_ref()?.bar_width() * 2.0).max(10.0) as f64;
+        let (row, col) = self.mouse_cell()?;
+        let (id, _, _) = self.state.grid_at(row as i64, col as i64)?;
+        // log::debug!("bar_at: {:?} cell {row},{col} grid {id}", self.mouse);
+        let p = self.state.placements.get(&id)?;
+        if p.layer != Layer::Window || id == MAIN_GRID {
+            return None;
+        }
+        if !crate::scrollbar::scrollable(self.state.viewports.get(&id)?) {
+            return None;
+        }
+        let (x1, _, _) = self.window_rect(id)?;
+        (self.mouse.0 >= x1 - zone && self.mouse.0 < x1).then_some(id)
+    }
+
+    fn set_bar_hover(&mut self, hover: Option<u64>) {
+        if hover == self.bar_hover {
+            return;
+        }
+        self.bar_hover = hover;
+        if let Some(renderer) = &mut self.renderer {
+            renderer.set_bar_hover(hover.map(|g| (g, self.bar_drag.is_some())));
+        }
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
+    }
+
+    fn drag_bar(&mut self, id: u64) {
+        let (Some((_, y, h)), Some(view)) = (self.window_rect(id), self.state.viewports.get(&id))
+        else {
+            return;
+        };
+        let frac = ((self.mouse.1 - y) / h.max(1.0)) as f32;
+        let top = crate::scrollbar::top_at(view, frac);
+        if self.bar_sent == Some(top) {
+            return;
+        }
+        self.bar_sent = Some(top);
+        log::debug!("scrollbar: win {} to line {top} ({frac:.2})", view.win);
+        self.send(NvimCommand::Lua(
+            crate::scrollbar::SCROLL_TO.into(),
+            vec![view.win.into(), top.into()],
+        ));
+    }
+
     fn on_mouse_button(&mut self, state: ElementState, button: MouseButton) {
         let name = match button {
             MouseButton::Left => "left",
@@ -651,6 +716,28 @@ impl App {
             MouseButton::Other(_) => return,
         };
         self.show_pointer();
+        if button == MouseButton::Left {
+            match state {
+                ElementState::Pressed if self.dragging.is_none() => {
+                    if let Some(id) = self.bar_at() {
+                        self.bar_drag = Some(id);
+                        self.bar_sent = None;
+                        self.bar_hover = None;
+                        self.set_bar_hover(Some(id));
+                        self.drag_bar(id);
+                        return;
+                    }
+                }
+                ElementState::Released if self.bar_drag.is_some() => {
+                    self.bar_drag = None;
+                    self.bar_hover = None;
+                    let hover = self.bar_at();
+                    self.set_bar_hover(hover);
+                    return;
+                }
+                _ => {}
+            }
+        }
         match state {
             ElementState::Pressed if self.over_panel() => {
                 if button == MouseButton::Left {
@@ -677,6 +764,14 @@ impl App {
 
     fn on_mouse_move(&mut self) {
         self.show_pointer();
+        if let Some(id) = self.bar_drag {
+            self.drag_bar(id);
+            return;
+        }
+        if self.dragging.is_none() {
+            let hover = self.bar_at();
+            self.set_bar_hover(hover);
+        }
         let on_link = self.dragging.is_none()
             && self
                 .preview_point()
@@ -1014,6 +1109,19 @@ impl ApplicationHandler<UserEvent> for App {
             UserEvent::Snapshot(id) => {
                 if let (Some(renderer), Some(window)) = (&mut self.renderer, &self.window) {
                     renderer.request_snapshot(crate::snapshot::path(id));
+                    window.request_redraw();
+                }
+            }
+            UserEvent::Marks(event) => {
+                match event {
+                    crate::scrollbar::MarksEvent::Colors(colors) => self.state.mark_colors = colors,
+                    crate::scrollbar::MarksEvent::Window(win, marks) => {
+                        let open: Vec<u64> = self.state.viewports.values().map(|v| v.win).collect();
+                        self.state.marks.retain(|w, _| open.contains(w));
+                        self.state.marks.insert(win, marks);
+                    }
+                }
+                if let Some(window) = &self.window {
                     window.request_redraw();
                 }
             }

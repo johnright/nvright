@@ -61,6 +61,9 @@ it graphics driver; the app's own heap is a couple of MB.
   (unicode placeholders), so images scroll, split and sit under floats like
   any other text. PNG, JPEG, GIF, WebP and SVG are decoded by the GUI, no
   ImageMagick needed.
+- A scrollbar over the right edge of each window, shown while scrolling or
+  under the mouse, with marks for search matches, diagnostics and gitsigns
+  hunks. Drag it or click the track to jump.
 - **Box drawing** characters and block elements are drawn by the GUI to fill
   the cell, so borders, tree guides and the Neovim logo stay joined with any
   `linespace`.
@@ -249,8 +252,8 @@ cargo run --release --manifest-path tools/icon/Cargo.toml
 
 ## Roadmap
 
-Next: a prebuilt release you can install with Scoop, a scrollbar with search
-and diagnostic marks, animated floats and a taskbar jump list. More in
+Next: a prebuilt release you can install with Scoop, animated floats and a
+taskbar jump list. More in
 [ROADMAP.md](ROADMAP.md). If something breaks on your setup, open an issue.
 
 ## License

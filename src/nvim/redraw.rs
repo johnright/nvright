@@ -81,6 +81,7 @@ pub enum RedrawEvent {
     WinViewport {
         grid: GridId,
         scroll_delta: i64,
+        view: Viewport,
     },
     MsgSetPos {
         grid: GridId,
@@ -273,12 +274,21 @@ fn parse_event(name: &str, tuple: Value) -> Result<RedrawEvent> {
         "win_close" => RedrawEvent::WinClose { grid: a.u64()? },
         "win_viewport" => {
             let grid = a.u64()?;
-            for _ in 0..6 {
-                a.next()?;
-            }
+            let win = window_handle(&a.next()?);
+            let top = a.u64()?;
+            let bot = a.u64()?;
+            a.next()?;
+            a.next()?;
+            let lines = a.u64()?;
             RedrawEvent::WinViewport {
                 grid,
                 scroll_delta: a.next().ok().and_then(|v| v.as_i64()).unwrap_or(1),
+                view: Viewport {
+                    win,
+                    top,
+                    bot,
+                    lines,
+                },
             }
         }
         "msg_set_pos" => {
@@ -368,6 +378,24 @@ fn parse_hl_attr(map: Value) -> Result<HlAttr> {
         }
     }
     Ok(attr)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Viewport {
+    pub win: u64,
+    pub top: u64,
+    pub bot: u64,
+    pub lines: u64,
+}
+
+fn window_handle(v: &Value) -> u64 {
+    match v {
+        Value::Ext(_, bytes) => rmpv::decode::read_value(&mut &bytes[..])
+            .ok()
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0),
+        v => v.as_u64().unwrap_or(0),
+    }
 }
 
 struct Args(std::vec::IntoIter<Value>);

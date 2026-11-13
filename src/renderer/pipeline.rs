@@ -12,6 +12,7 @@ pub const KIND_UNDERCURL: u32 = 4;
 pub const KIND_DOTTED: u32 = 5;
 pub const KIND_DASHED: u32 = 6;
 pub const KIND_SHADOW: u32 = 7;
+pub const KIND_ROUNDED: u32 = 8;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Pod, Zeroable)]

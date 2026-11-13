@@ -10,6 +10,7 @@ mod latency;
 mod nvim;
 mod preview;
 mod renderer;
+mod scrollbar;
 mod snapshot;
 mod vsync;
 mod window_state;

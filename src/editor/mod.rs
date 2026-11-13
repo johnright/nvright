@@ -6,7 +6,7 @@ use std::collections::HashMap;
 pub use grid::{Cell, CellText, Grid, Row, TextInterner};
 pub use highlight::HlTable;
 
-use crate::nvim::redraw::{GridId, ModeInfo, RedrawEvent};
+use crate::nvim::redraw::{GridId, ModeInfo, RedrawEvent, Viewport};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GridChange {
@@ -75,6 +75,9 @@ pub struct EditorState {
     pub linespace: i64,
     pub title: Option<String>,
     pub images: crate::kitty::Placements,
+    pub viewports: HashMap<GridId, Viewport>,
+    pub marks: HashMap<u64, Vec<(u32, u8)>>,
+    pub mark_colors: Vec<u32>,
     pub changes: Vec<GridChange>,
     changed_cells: Vec<(u64, usize)>,
     flushed_cursor: Cursor,
@@ -154,6 +157,7 @@ impl EditorState {
                     self.changes.push(GridChange::Reset { grid: *grid });
                     self.grids.remove(grid);
                     self.placements.remove(grid);
+                    self.viewports.remove(grid);
                 }
                 RedrawEvent::WinPos { grid, row, col, .. } => {
                     self.place(*grid, *row as i64, *col as i64, Layer::Window, true, false);
@@ -191,6 +195,7 @@ impl EditorState {
                 }
                 RedrawEvent::WinClose { grid } => {
                     self.placements.remove(grid);
+                    self.viewports.remove(grid);
                 }
                 RedrawEvent::GridCursorGoto { grid, row, col } => {
                     self.cursor = Cursor {
@@ -220,8 +225,13 @@ impl EditorState {
                 }
                 RedrawEvent::LineSpace(px) => self.linespace = *px,
                 RedrawEvent::SetTitle(title) => self.title = Some(title.clone()),
-                RedrawEvent::WinViewport { scroll_delta, .. } => {
+                RedrawEvent::WinViewport {
+                    grid,
+                    scroll_delta,
+                    view,
+                } => {
                     viewport_scrolled |= *scroll_delta != 0;
+                    self.viewports.insert(*grid, *view);
                 }
                 RedrawEvent::Flush => {
                     flushed = true;
@@ -620,6 +630,7 @@ mod tests {
             RedrawEvent::WinViewport {
                 grid: 2,
                 scroll_delta: 0,
+                view: Default::default(),
             },
         ]);
         s.apply(&[
@@ -627,6 +638,7 @@ mod tests {
             RedrawEvent::WinViewport {
                 grid: 2,
                 scroll_delta: 1,
+                view: Default::default(),
             },
         ]);
         let animated: Vec<bool> = s

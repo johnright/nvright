@@ -17,7 +17,7 @@ Nothing here is a promise, and anything that makes typing slower or text worse w
 - [x] **New name: nvright** – right_editor said nothing about Neovim
 - [ ] **Releases** – a prebuilt `.exe` on GitHub Releases and `scoop install nvright`,
   no cross-compiling toolchain needed
-- [ ] **Scrollbar** – thin, drawn over the text while you scroll, with marks for
+- [x] **Scrollbar** – thin, drawn over the text while you scroll, with marks for
   search matches, diagnostics and git changes. You can drag it
 - [ ] **Floating window animation** – pickers, completion and hover fade in
   instead of just appearing

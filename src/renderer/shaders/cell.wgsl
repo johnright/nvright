@@ -17,6 +17,7 @@ const KIND_UNDERCURL: u32 = 4u;
 const KIND_DOTTED: u32 = 5u;
 const KIND_DASHED: u32 = 6u;
 const KIND_SHADOW: u32 = 7u;
+const KIND_ROUNDED: u32 = 8u;
 
 struct Instance {
     @location(0) pos: vec2<f32>,
@@ -104,6 +105,15 @@ fn shade(in: VertexOut) -> Shaded {
         let dist = length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0);
         let t = clamp(dist / blur, 0.0, 1.0);
         let a = in.color.a * (1.0 - t) * (1.0 - t);
+        out.color = vec4<f32>(fg * a, a);
+        out.weight = vec4<f32>(a);
+        return out;
+    }
+    if in.kind == KIND_ROUNDED {
+        let r = min(in.size.x, in.size.y) / 2.0;
+        let q = abs(in.uv - in.size / 2.0) - (in.size / 2.0 - vec2<f32>(r));
+        let dist = length(max(q, vec2<f32>(0.0))) + min(max(q.x, q.y), 0.0) - r;
+        let a = clamp(0.5 - dist, 0.0, 1.0) * in.color.a;
         out.color = vec4<f32>(fg * a, a);
         out.weight = vec4<f32>(a);
         return out;
