@@ -20,6 +20,7 @@ use crate::latency::Latency;
 use crate::nvim::NvimCommand;
 use crate::nvim::redraw::RedrawEvent;
 use crate::preview::layout::{Document, Params};
+use crate::clipboard::Clip;
 use crate::kitty::{FitKey, Fitted, Kitty};
 use crate::preview::{LinkTarget, Preview, PreviewEvent, PreviewMsg};
 use crate::renderer::Renderer;
@@ -79,6 +80,37 @@ pub struct App {
     kitty: Kitty,
     cell_sent: Option<(f32, f32)>,
 }
+
+const DROP: &str = r#"
+local path = ...
+local ext = (path:match('%.(%w+)$') or ''):lower()
+local images = { png = 1, jpg = 1, jpeg = 1, gif = 1, webp = 1, svg = 1 }
+if vim.bo.filetype ~= 'markdown' or not images[ext] then
+  vim.cmd.drop(vim.fn.fnameescape(path))
+  return
+end
+local file = vim.api.nvim_buf_get_name(0)
+local dir = file ~= '' and vim.fs.dirname(file) or vim.fn.getcwd()
+local from = vim.split(dir, '/', { trimempty = true })
+local to = vim.split(path, '/', { trimempty = true })
+local i = 1
+while from[i] and from[i] == to[i] do
+  i = i + 1
+end
+local link = path
+if i > 1 then
+  local parts = {}
+  for _ = i, #from do
+    parts[#parts + 1] = '..'
+  end
+  vim.list_extend(parts, to, i)
+  link = table.concat(parts, '/')
+end
+if link:find(' ') then
+  link = '<' .. link .. '>'
+end
+vim.api.nvim_put({ '![](' .. link .. ')' }, 'c', vim.fn.mode() ~= 'i', true)
+"#;
 
 const MAX_HIDDEN: Duration = Duration::from_millis(1500);
 
@@ -440,12 +472,16 @@ impl App {
     }
 
     fn paste_clipboard(&mut self) {
-        match crate::clipboard::read_text() {
-            Some(text) if !text.is_empty() => {
+        match crate::clipboard::read() {
+            Some(Clip::Text(text)) => {
                 self.hide_pointer();
                 self.send(NvimCommand::Paste(text));
             }
-            _ => log::debug!("no text in the clipboard"),
+            Some(Clip::Image(png)) => self.send(NvimCommand::Lua(
+                crate::clipboard::SAVE_IMAGE.into(),
+                vec![rmpv::Value::Binary(png)],
+            )),
+            None => log::debug!("nothing to paste"),
         }
     }
 
@@ -852,10 +888,7 @@ impl ApplicationHandler<UserEvent> for App {
             WindowEvent::DroppedFile(path) => {
                 let path = crate::nvim::launch::nvim_path(&self.config.nvim, &path.to_string_lossy());
                 // log::info!("dropped {path}");
-                self.send(NvimCommand::Lua(
-                    "vim.cmd.drop(vim.fn.fnameescape(...))".into(),
-                    vec![path.into()],
-                ));
+                self.send(NvimCommand::Lua(DROP.into(), vec![path.into()]));
             }
             WindowEvent::CloseRequested => {
                 if self.nvim.send(NvimCommand::Quit).is_err() {

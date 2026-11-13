@@ -5,13 +5,15 @@
 A Neovim GUI for Windows, for people who run Neovim inside WSL. I wanted two
 things from it: low input latency and text as sharp as in Zed.
 
-It's a native Windows app in Rust (winit, wgpu on DX12, DirectWrite for the
+It's a native Windows app in Rust (winit, wgpu on Vulkan, DirectWrite for the
 text) that starts `nvim --embed` in your WSL distro, with your usual config and
 plugins.
 
 ![Demo: cursor trail, smooth scrolling, typing, the file picker and the markdown preview](assets/screenshots/demo.gif)
 
 ![Code view](assets/screenshots/code.png)
+
+![The markdown preview, next to this README](assets/screenshots/preview.png)
 
 ## Why
 
@@ -26,7 +28,9 @@ Neovim in WSL.
 
 On my machine, with a full config (treesitter, LSP, completion), key press to
 presented frame is about **3 ms median, 5 ms p90**, and nearly all of that is
-Neovim itself. Use `--latency` to measure it on yours.
+Neovim itself: drawing a frame takes about half a millisecond. Use `--latency`
+to measure it on yours. It sits at around 70 MB in Task Manager, almost all of
+it graphics driver; the app's own heap is a couple of MB.
 
 ## Features
 
@@ -49,14 +53,25 @@ Neovim itself. Use `--latency` to measure it on yours.
   you type and scrolls with the Neovim window. Clicking a link opens it (web,
   `#heading`, or another file in Neovim); clicking anywhere else moves the
   cursor to that line. Parsing and layout run on a separate thread and don't
-  affect typing latency.
+  affect typing latency. `Ctrl+Shift+V` with an image in the clipboard (a
+  screenshot, say) saves it as a PNG next to the file and inserts the link;
+  dropping an image file on a markdown buffer inserts a relative link.
+- Images in Neovim: [snacks.image](https://github.com/folke/snacks.nvim/blob/main/docs/image.md)
+  works. nvright speaks the part of the kitty graphics protocol it uses
+  (unicode placeholders), so images scroll, split and sit under floats like
+  any other text. PNG, JPEG, GIF, WebP and SVG are decoded by the GUI, no
+  ImageMagick needed.
+- **Box drawing** characters and block elements are drawn by the GUI to fill
+  the cell, so borders, tree guides and the Neovim logo stay joined with any
+  `linespace`.
 - ext_multigrid, one grid per Neovim window. Floating windows get soft
   shadows, `winblend`/`pumblend` transparency and a dimmed backdrop when
   focused.
 - On the Windows side: native title bar and icon, Start menu shortcut, remembered
   window geometry (maximized too), no white flash on startup, full mouse
   support, AltGr and IME-composed text, Ctrl +/-/0 zoom, Alt+Enter to
-  maximize. Optional translucent background with acrylic blur.
+  maximize, files dropped on the window open in Neovim (Windows paths are
+  turned into WSL ones). Optional translucent background with acrylic blur.
 - Starts `nvim` through `wsl.exe` in the distro and folder taken from
   the current directory, and kills it when the window goes away. `:restart`
   works too: the window stays open and reattaches to the new server through a
@@ -64,7 +79,7 @@ Neovim itself. Use `--latency` to measure it on yours.
 
 ## Requirements
 
-- Windows 10/11 with a DX12-capable GPU (Vulkan is used as a fallback).
+- Windows 10/11 with a Vulkan or DX12 GPU.
 - WSL with Neovim 0.12.5 or newer installed in the distro (tested with 0.12.6).
 - A Nerd Font if your config uses icons.
 
@@ -169,6 +184,15 @@ It's worth turning off plugins that animate inside the grid (`snacks.scroll`,
 `smear-cursor`, ...) when `vim.g.nvright` is set. nvright animates the
 cursor and scrolling itself, without holding back the real update.
 
+For images, enable snacks.image only here. With `doc` off markdown stays plain
+text and its images show up in the preview instead:
+
+```lua
+require('snacks').setup {
+  image = { enabled = vim.g.nvright ~= nil, doc = { enabled = false } },
+}
+```
+
 ### Shortcuts
 
 These are handled by the GUI and never reach Neovim:
@@ -176,7 +200,8 @@ These are handled by the GUI and never reach Neovim:
 - `Ctrl` + `+` / `-` / `0`, `Ctrl` + mouse wheel: zoom;
 - `Alt` + `Enter`: maximize / restore;
 - `Ctrl` + `Shift` + `V`: paste the Windows clipboard in any mode. In a
-  `:terminal` it is a bracketed paste, so multi-line commands are not run;
+  `:terminal` it is a bracketed paste, so multi-line commands are not run.
+  An image is saved next to the current file and linked;
 - `Ctrl` + `Shift` + `M`: show / hide the markdown preview (same as
   `:NvrightPreview`, `:NvrightPreview!` hides it). It follows the
   current markdown buffer and keeps the last one while you edit other files.
@@ -202,7 +227,11 @@ scripts/run-win.sh --release -- --latency some_file.ts
   and the change log that drives the animations.
 - `src/renderer/`: one instanced pipeline for backgrounds, glyphs and
   decorations, a glyph atlas, per-row instance caching, DirectWrite (Windows)
-  or swash (elsewhere) rasterization, and the cursor/scroll/text animations.
+  or swash (elsewhere) rasterization, box drawing done by hand, and the
+  cursor/scroll/text animations.
+- `src/kitty.rs`: kitty graphics for snacks.image. A Lua shim reroutes what
+  snacks writes to the terminal, images are decoded and fitted on a thread and
+  end up in the glyph atlas, one slice per placeholder cell.
 - `src/preview/`: the markdown preview. A small Lua module installed at attach
   time sends the buffer text (debounced), the treesitter highlights of its code
   blocks (cached per block), the visible lines and the theme colors;
