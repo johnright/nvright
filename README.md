@@ -42,8 +42,8 @@ it graphics driver; the app's own heap is a couple of MB.
   the monitor refresh with `DwmFlush`. Mailbox presentation, per-row instance
   caching, nothing done on idle frames.
 - Animations, all optional: Neovide-style cursor trail, smooth scrolling
-  per window, fade-in of typed characters, and the text right of the cursor
-  sliding over when you type mid-line.
+  per window, fade-in of typed characters, the text right of the cursor
+  sliding over when you type mid-line, and floats fading in as they open.
 - **Markdown preview** in a panel next to Neovim, drawn by the GUI
   (`Ctrl+Shift+M` or `:NvrightPreview`). Proportional text, headings in
   the colorscheme's colors, lists, task lists, quotes, GitHub alerts,
@@ -75,6 +75,8 @@ it graphics driver; the app's own heap is a couple of MB.
   support, AltGr and IME-composed text, Ctrl +/-/0 zoom, Alt+Enter to
   maximize, files dropped on the window open in Neovim (Windows paths are
   turned into WSL ones). Optional translucent background with acrylic blur.
+  Recent files and folders in the taskbar jump list (right click the icon),
+  kept in `recent` next to the config.
 - Starts `nvim` through `wsl.exe` in the distro and folder taken from
   the current directory, and kills it when the window goes away. `:restart`
   works too: the window stays open and reattaches to the new server through a
@@ -137,6 +139,7 @@ Started from a WSL terminal, Neovim opens in the current folder of that distro.
 | `--scroll-animation <ms>` | 120 | smooth scrolling, 0 = off |
 | `--text-fade <ms>` | 70 | fade-in of typed characters, 0 = off |
 | `--text-slide <ms>` | 0 | slide of the text after the cursor when typing mid-line |
+| `--float-animation <ms>` | 100 | floats fade in and rise a few pixels, 0 = off |
 | `--backdrop <0-1>` | 0.3 | dimming behind a focused floating window |
 | `--opacity <0.1-1>` | 1 | opacity of the default background, text stays opaque |
 | `--blur` | | acrylic blur behind a translucent window (Windows 11) |
@@ -252,8 +255,7 @@ cargo run --release --manifest-path tools/icon/Cargo.toml
 
 ## Roadmap
 
-Next: a prebuilt release you can install with Scoop, animated floats and a
-taskbar jump list. More in
+Next: a prebuilt release you can install with Scoop. More in
 [ROADMAP.md](ROADMAP.md). If something breaks on your setup, open an issue.
 
 ## License

@@ -137,6 +137,11 @@ impl Handler for RedrawHandler {
                 }
                 None => log::debug!("scrollbar: unrecognized notification"),
             },
+            "nvright_recent" => {
+                if let Some(event) = crate::jumplist::parse_notification(args) {
+                    let _ = self.proxy.send_event(UserEvent::Recent(event));
+                }
+            }
             "nvright_wheel" => {
                 let n = |i: usize| args.get(i).and_then(Value::as_u64).unwrap_or(0) as f64;
                 let _ = self.proxy.send_event(UserEvent::WheelLines(n(0), n(1)));

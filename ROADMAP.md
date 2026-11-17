@@ -19,9 +19,9 @@ Nothing here is a promise, and anything that makes typing slower or text worse w
   no cross-compiling toolchain needed
 - [x] **Scrollbar** – thin, drawn over the text while you scroll, with marks for
   search matches, diagnostics and git changes. You can drag it
-- [ ] **Floating window animation** – pickers, completion and hover fade in
+- [x] **Floating window animation** – pickers, completion and hover fade in
   instead of just appearing
-- [ ] **Taskbar jump list** – recent files and folders on right click
+- [x] **Taskbar jump list** – recent files and folders on right click
 - [ ] **Multiple instances** – more than one Neovim, picked from the GUI
 
 ## Later

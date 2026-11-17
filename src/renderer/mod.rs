@@ -73,6 +73,10 @@ pub struct Renderer {
     backdrop_since: Option<Instant>,
     last_present: Option<Instant>,
     text_fade: Duration,
+    float_animation: Duration,
+    float_since: HashMap<GridId, Instant>,
+    float_group: Option<Instant>,
+    floats_moving: bool,
     fades: Vec<TextFade>,
     text_slide: Duration,
     slides: Vec<TextSlide>,
@@ -180,6 +184,10 @@ impl Renderer {
             backdrop_since: None,
             last_present: None,
             text_fade: Duration::from_millis(config.text_fade_ms),
+            float_animation: Duration::from_millis(config.float_animation_ms),
+            float_since: HashMap::new(),
+            float_group: None,
+            floats_moving: false,
             fades: Vec::new(),
             text_slide: Duration::from_millis(config.text_slide_ms),
             slides: Vec::new(),
@@ -433,6 +441,7 @@ impl Renderer {
             || !self.fades.is_empty()
             || !self.slides.is_empty()
             || self.preview.animating
+            || self.floats_moving
             || self.bars.values().any(|b| b.fading(acquired));
         let rows = &self.rows;
         for &(id, _, _) in &order {
@@ -568,6 +577,44 @@ impl Renderer {
         self.rows.clear();
     }
 
+    fn open_floats(&mut self, order: &[Placed], state: &EditorState, now: Instant) {
+        let eligible: Vec<(GridId, CellRect)> = order
+            .iter()
+            .filter(|(id, _, _)| {
+                state.placements.get(id).is_some_and(|p| {
+                    p.shadow && p.mouse && matches!(p.layer, Layer::Float { .. })
+                })
+            })
+            .filter_map(|&(id, row, col)| {
+                let g = state.grids.get(&id)?;
+                let (width, height) = (g.width() as i64, g.height() as i64);
+                Some((id, CellRect { row, col, width, height }))
+            })
+            .collect();
+        self.float_since.retain(|id, _| eligible.iter().any(|(e, _)| e == id));
+        if eligible.is_empty() || self.float_animation.is_zero() {
+            self.float_group = None;
+            return;
+        }
+        let done = now.checked_sub(self.float_animation).unwrap_or(now);
+        let open: Vec<CellRect> = eligible
+            .iter()
+            .filter(|(id, _)| self.float_since.contains_key(id))
+            .map(|&(_, r)| r)
+            .collect();
+        for (id, rect) in eligible {
+            if self.float_since.contains_key(&id) {
+                continue;
+            }
+            let since = match self.float_group {
+                Some(g) if now.saturating_duration_since(g) < self.float_animation => g,
+                _ if open.iter().any(|o| o.touches(&rect)) => done,
+                _ => *self.float_group.insert(now),
+            };
+            self.float_since.insert(id, since);
+        }
+    }
+
     pub fn set_bar_hover(&mut self, hover: Option<(GridId, bool)>) {
         self.bar_hover = hover;
     }
@@ -663,6 +710,8 @@ impl Renderer {
 
     fn assemble(&mut self, order: &[Placed], state: &EditorState, now: Instant) -> bool {
         let m = self.fonts.metrics;
+        self.floats_moving = false;
+        self.open_floats(order, state, now);
         let cursor = state.cursor;
         let mut cursor_at: Option<(f32, f32, f32, Vec<Instance>)> = None;
 
@@ -752,6 +801,11 @@ impl Renderer {
                 }
                 continue;
             }
+            let opening = self
+                .float_since
+                .get(&id)
+                .is_some_and(|&since| now.saturating_duration_since(since) < self.float_animation);
+            let (inst_start, seg_start) = (self.instances.len(), self.segments.len());
             let (ox, oy) = (left as f32 * m.width, top as f32 * m.height);
             let (gw, gh) = (
                 grid.width() as f32 * m.width,
@@ -901,6 +955,26 @@ impl Renderer {
                 row_offset[top..bot].fill(offset);
             }
 
+            let mut oy = oy;
+            if opening {
+                let t = now.saturating_duration_since(self.float_since[&id]);
+                let p = t.as_secs_f32() / self.float_animation.as_secs_f32();
+                let alpha = fade_alpha(t, self.float_animation);
+                let dy = ((1.0 - p).powi(3) * m.height * 0.25).round();
+                for inst in &mut self.instances[inst_start..] {
+                    inst.color = scale_alpha(inst.color, alpha);
+                    inst.pos[1] += dy;
+                }
+                for seg in &mut self.segments[seg_start..] {
+                    if let Some(s) = &mut seg.scissor {
+                        let y = (s[1] + dy as u32).min(screen[1] as u32);
+                        s[3] = s[3].min(screen[1] as u32 - y);
+                        s[1] = y;
+                    }
+                }
+                oy += dy;
+                self.floats_moving = true;
+            }
             if state
                 .placements
                 .get(&id)

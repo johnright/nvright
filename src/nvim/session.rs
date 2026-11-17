@@ -154,6 +154,9 @@ async fn install_lua(nvim: nvim_rs::Neovim<Writer>) {
     if let Err(err) = nvim.exec_lua(crate::scrollbar::LUA, vec![id.into()]).await {
         log::warn!("scrollbar marks not set up in nvim: {err}");
     }
+    if let Err(err) = nvim.exec_lua(crate::jumplist::LUA, vec![id.into()]).await {
+        log::warn!("recent files not tracked: {err}");
+    }
     if let Err(err) = nvim.exec_lua(crate::kitty::LUA, vec![id.into()]).await {
         log::warn!("kitty graphics not set up in nvim: {err}");
     }

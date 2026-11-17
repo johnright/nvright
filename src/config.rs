@@ -17,6 +17,7 @@ pub struct Config {
     pub cursor_trail: f32,
     pub scroll_animation_ms: u64,
     pub text_fade_ms: u64,
+    pub float_animation_ms: u64,
     pub text_slide_ms: u64,
     pub multigrid: bool,
     pub floating_shadow: bool,
@@ -72,6 +73,7 @@ impl Default for Config {
             cursor_trail: 0.4,
             scroll_animation_ms: 120,
             text_fade_ms: 70,
+            float_animation_ms: 100,
             text_slide_ms: 0,
             multigrid: true,
             floating_shadow: true,
@@ -105,6 +107,7 @@ usage: nvright [options] [file...] [-- arguments for nvim]
   --text-fade <ms>        fade-in of newly typed characters, 0 = off (default: 70)
   --text-slide <ms>       slide of the text to the right when typing mid-line,
                           0 = off (default: 0)
+  --float-animation <ms>  floats fade in and rise a few pixels, 0 = off (default: 100)
   --no-multigrid          everything on a single grid (no ext_multigrid)
   --no-floating-shadow    no shadow under floating windows
   --backdrop <0-1>        dimming behind a focused float, 0 = off (default: 0.3)
@@ -280,6 +283,7 @@ impl Config {
             }
             "scroll-animation" => self.scroll_animation_ms = parse_ms(value)?,
             "text-fade" => self.text_fade_ms = parse_ms(value)?,
+            "float-animation" => self.float_animation_ms = parse_ms(value)?,
             "text-slide" => self.text_slide_ms = parse_ms(value)?,
             "backdrop" => {
                 self.backdrop = value

@@ -46,6 +46,8 @@ pub enum UserEvent {
     KittyDistro(String),
     KittyFitted(FitKey, Arc<Fitted>),
     Marks(crate::scrollbar::MarksEvent),
+    Recent(crate::jumplist::RecentEvent),
+    JumpListRemoved(Vec<String>),
 }
 
 pub struct App {
@@ -69,6 +71,8 @@ pub struct App {
     bar_hover: Option<u64>,
     bar_drag: Option<u64>,
     bar_sent: Option<u64>,
+    recent: Option<crate::jumplist::Recent>,
+    jump_proxy: EventLoopProxy<UserEvent>,
     last_mouse_cell: Option<(u64, u64)>,
     pointer_visible: bool,
     latency: Option<Latency>,
@@ -134,6 +138,7 @@ impl App {
         let kitty = Kitty::new(move |key, image| {
             let _ = kitty_proxy.send_event(UserEvent::KittyFitted(key, image));
         });
+        let jump_proxy = proxy.clone();
         let vsync = VSync::new(proxy)
             .inspect_err(|err| log::warn!("vsync thread not started: {err}"))
             .ok();
@@ -158,6 +163,8 @@ impl App {
             bar_hover: None,
             bar_drag: None,
             bar_sent: None,
+            recent: None,
+            jump_proxy,
             last_mouse_cell: None,
             pointer_visible: true,
             latency,
@@ -1123,6 +1130,26 @@ impl ApplicationHandler<UserEvent> for App {
                 }
                 if let Some(window) = &self.window {
                     window.request_redraw();
+                }
+            }
+            UserEvent::Recent(event) if !self.config.hidden => {
+                let recent = self.recent.get_or_insert_with(crate::jumplist::Recent::load);
+                if recent.add(event) {
+                    recent.save();
+                    let proxy = self.jump_proxy.clone();
+                    recent.publish(move |removed| {
+                        if !removed.is_empty() {
+                            let _ = proxy.send_event(UserEvent::JumpListRemoved(removed));
+                        }
+                    });
+                }
+            }
+            UserEvent::Recent(_) => {}
+            UserEvent::JumpListRemoved(removed) => {
+                if let Some(recent) = &mut self.recent
+                    && recent.forget(&removed)
+                {
+                    recent.save();
                 }
             }
             UserEvent::WheelLines(ver, hor) => {
