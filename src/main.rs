@@ -3,6 +3,7 @@
 mod app;
 mod clipboard;
 mod config;
+mod distros;
 mod editor;
 mod input;
 mod jumplist;
@@ -13,6 +14,7 @@ mod preview;
 mod renderer;
 mod scrollbar;
 mod snapshot;
+mod ui_img;
 mod vsync;
 mod window_state;
 
@@ -59,6 +61,7 @@ fn main() -> Result<()> {
     runtime.spawn(nvim::run(
         config.nvim.clone(),
         config.multigrid,
+        config.ui_img,
         cols,
         rows,
         event_loop.create_proxy(),

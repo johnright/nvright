@@ -208,6 +208,9 @@ These are handled by the GUI and never reach Neovim:
 - `Ctrl` + `Shift` + `V`: paste the Windows clipboard in any mode. In a
   `:terminal` it is a bracketed paste, so multi-line commands are not run.
   An image is saved next to the current file and linked;
+- `Ctrl` + `Shift` + `N`: new window in a WSL distro, picked from a list
+  (same as `:NvrightNew`, `:NvrightNew Ubuntu` skips the list). The taskbar
+  jump list has one entry per distro too;
 - `Ctrl` + `Shift` + `M`: show / hide the markdown preview (same as
   `:NvrightPreview`, `:NvrightPreview!` hides it). It follows the
   current markdown buffer and keeps the last one while you edit other files.

@@ -259,6 +259,16 @@ mod shell {
                     list.AppendCategory(&HSTRING::from(name), &items.cast::<IObjectArray>()?)?;
                 }
             }
+            let distros = crate::distros::installed();
+            if distros.len() > 1 {
+                let tasks: IObjectCollection =
+                    CoCreateInstance(&EnumerableObjectCollection, None, CLSCTX_INPROC_SERVER)?;
+                for d in &distros {
+                    let args = format!("--distro \"{d}\" --cwd \"~\"");
+                    tasks.AddObject(&link(&exe, &args, &format!("New window: {d}"), d)?)?;
+                }
+                list.AddUserTasks(&tasks.cast::<IObjectArray>()?)?;
+            }
             list.CommitList()?;
             Ok(removed)
         }

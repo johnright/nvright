@@ -22,7 +22,8 @@ Nothing here is a promise, and anything that makes typing slower or text worse w
 - [x] **Floating window animation** – pickers, completion and hover fade in
   instead of just appearing
 - [x] **Taskbar jump list** – recent files and folders on right click
-- [ ] **Multiple instances** – more than one Neovim, picked from the GUI
+- [x] **Any WSL distro** – a new window in Arch, Ubuntu or whatever else is
+  installed, from a shortcut or the taskbar
 
 ## Later
 
@@ -46,6 +47,7 @@ Nothing here is a promise, and anything that makes typing slower or text worse w
 - [x] markdown preview with images, tables, highlighted code
 - [x] translucent window with acrylic blur
 - [x] `:restart`
+- [x] images from `vim.ui.img` (Neovim 0.13)
 
 ## Not planned
 

@@ -44,10 +44,12 @@ pub enum UserEvent {
     PreviewMsg(PreviewMsg),
     KittyData(Vec<u8>),
     KittyDistro(String),
+    UiImg(crate::ui_img::Event),
     KittyFitted(FitKey, Arc<Fitted>),
     Marks(crate::scrollbar::MarksEvent),
     Recent(crate::jumplist::RecentEvent),
     JumpListRemoved(Vec<String>),
+    Spawn(String),
 }
 
 pub struct App {
@@ -452,6 +454,12 @@ impl App {
             }
             return true;
         }
+        if ctrl_only && m.shift && key.physical_key == PhysicalKey::Code(KeyCode::KeyN) {
+            if !key.repeat {
+                self.send(NvimCommand::Lua(crate::distros::NEW.to_string(), vec![]));
+            }
+            return true;
+        }
         match &key.logical_key {
             Key::Character(c) if ctrl_only && (c == "+" || c == "=") => {
                 self.set_zoom(self.zoom * ZOOM_STEP)
@@ -589,6 +597,41 @@ impl App {
             "vim.g.nvright_cell = { ... }".into(),
             vec![cell.0.into(), cell.1.into()],
         ));
+    }
+
+    fn on_ui_img(&mut self, event: crate::ui_img::Event) {
+        use crate::ui_img::{Event, UiImage, image_key};
+        let mut gone = Vec::new();
+        match event {
+            Event::Set { id, opts, data: Some(data) } => {
+                let key = image_key(id);
+                let natural = crate::ui_img::natural_size(&data);
+                if natural.is_none() {
+                    log::warn!("vim.ui.img: image {id} has no readable size");
+                }
+                self.kitty.load_bytes(key, data);
+                self.state.ui_images.insert(id, UiImage { key, opts, natural });
+            }
+            Event::Set { id, opts, data: None } => {
+                if let Some(img) = self.state.ui_images.get_mut(&id) {
+                    img.opts = opts;
+                }
+            }
+            Event::Del(Some(id)) => gone.extend(self.state.ui_images.remove(&id)),
+            Event::Del(None) => gone.extend(std::mem::take(&mut self.state.ui_images).into_values()),
+        }
+        for img in &gone {
+            self.kitty.forget(img.key);
+        }
+        if let Some(renderer) = &mut self.renderer
+            && !gone.is_empty()
+        {
+            let keys: Vec<u32> = gone.iter().map(|img| img.key).collect();
+            renderer.forget_images(Some(&keys));
+        }
+        if let Some(window) = &self.window {
+            window.request_redraw();
+        }
     }
 
     fn on_kitty(&mut self, data: &[u8]) {
@@ -1093,6 +1136,9 @@ impl ApplicationHandler<UserEvent> for App {
             UserEvent::NvimExited(Err(err)) => self.fail(event_loop, anyhow::anyhow!(err)),
             UserEvent::NvimRestarted => {
                 log::info!(":restart: attached to the new server");
+                for img in self.state.ui_images.values() {
+                    self.kitty.forget(img.key);
+                }
                 self.state = EditorState::default();
                 self.preview.reset();
                 self.cell_sent = None;
@@ -1107,6 +1153,7 @@ impl ApplicationHandler<UserEvent> for App {
             UserEvent::Preview(event) => self.on_preview(event),
             UserEvent::KittyData(data) => self.on_kitty(&data),
             UserEvent::KittyDistro(distro) => self.kitty.set_distro(distro),
+            UserEvent::UiImg(event) => self.on_ui_img(event),
             UserEvent::KittyFitted(key, image) => {
                 if let (Some(renderer), Some(window)) = (&mut self.renderer, &self.window) {
                     renderer.add_image(key, image);
@@ -1145,6 +1192,8 @@ impl ApplicationHandler<UserEvent> for App {
                 }
             }
             UserEvent::Recent(_) => {}
+            UserEvent::Spawn(distro) if !self.config.hidden => crate::distros::spawn(&distro),
+            UserEvent::Spawn(distro) => log::info!("hidden, not opening a window in {distro}"),
             UserEvent::JumpListRemoved(removed) => {
                 if let Some(recent) = &mut self.recent
                     && recent.forget(&removed)

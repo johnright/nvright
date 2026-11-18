@@ -198,6 +198,7 @@ enum Source {
 enum Job {
     Load(u32, Source),
     Fit(FitKey),
+    Forget(u32),
 }
 
 pub struct Kitty {
@@ -223,6 +224,14 @@ impl Kitty {
 
     pub fn fit(&self, key: FitKey) {
         let _ = self.jobs.send(Job::Fit(key));
+    }
+
+    pub fn load_bytes(&self, id: u32, data: Vec<u8>) {
+        let _ = self.jobs.send(Job::Load(id, Source::Data(data)));
+    }
+
+    pub fn forget(&self, id: u32) {
+        let _ = self.jobs.send(Job::Forget(id));
     }
 
     pub fn feed(&mut self, data: &[u8], placements: &mut Placements) -> Outcome {
@@ -347,6 +356,9 @@ fn spawn_worker(sink: impl Fn(FitKey, Arc<Fitted>) + Send + 'static) -> Sender<J
                         }
                         Err(err) => log::warn!("kitty: image {id}: {err}"),
                     },
+                    Job::Forget(id) => {
+                        images.remove(&id);
+                    }
                     Job::Fit(key) => {
                         if let Some(image) = images.get(&key.0)
                             && let Some(fitted) = fit(image, key.1, key.2)

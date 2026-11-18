@@ -65,6 +65,8 @@ pub struct Renderer {
     cursor_pipeline: CursorPipeline,
     cursor_quad: Option<([[f32; 2]; 4], u32)>,
     cursor_text: std::ops::Range<u32>,
+    ui_images: Vec<Instance>,
+    ui_range: std::ops::Range<u32>,
     scrolling: HashMap<GridId, Scrolling>,
     scroll_duration: Duration,
     animating: bool,
@@ -176,6 +178,8 @@ impl Renderer {
             cursor_pipeline,
             cursor_quad: None,
             cursor_text: 0..0,
+            ui_images: Vec::new(),
+            ui_range: 0..0,
             scrolling: HashMap::new(),
             scroll_duration: Duration::from_millis(config.scroll_animation_ms),
             animating: false,
@@ -413,11 +417,13 @@ impl Renderer {
         let order = state.draw_order();
         if self.prepare_preview(preview, acquired).is_err()
             || self.update_rows(&order, state).is_err()
+            || self.prepare_ui_images(state).is_err()
         {
             log::info!("atlas full, rebuilding");
             self.clear_atlas();
             if self.prepare_preview(preview, acquired).is_err()
                 || self.update_rows(&order, state).is_err()
+                || self.prepare_ui_images(state).is_err()
             {
                 log::error!("the visible glyphs do not fit in the atlas");
             }
@@ -435,6 +441,9 @@ impl Renderer {
         self.slides
             .retain(|s| acquired.saturating_duration_since(s.since) < slide);
         let cursor_moving = self.assemble(&order, state, acquired);
+        let ui_start = self.instances.len() as u32;
+        self.instances.extend_from_slice(&self.ui_images);
+        self.ui_range = ui_start..self.instances.len() as u32;
         self.assemble_preview();
         self.animating = scrolling
             || cursor_moving
@@ -501,6 +510,12 @@ impl Renderer {
                 self.gpu.surface_config.height,
             ];
             self.pipeline.draw(&mut pass, &self.segments, size);
+            let ui = Segment {
+                range: self.ui_range.clone(),
+                scissor: None,
+                replace: false,
+            };
+            self.pipeline.draw(&mut pass, &[ui], size);
             if self.cursor_quad.is_some() {
                 self.cursor_pipeline.draw(&mut pass, size);
                 let text = Segment {
@@ -546,6 +561,37 @@ impl Renderer {
             render: presented - acquired,
             presented,
         }))
+    }
+
+    fn prepare_ui_images(&mut self, state: &EditorState) -> Result<(), AtlasFull> {
+        self.ui_images.clear();
+        let m = self.fonts.metrics;
+        let mut imgs: Vec<_> = state.ui_images.values().collect();
+        imgs.sort_by_key(|img| img.opts.zindex);
+        for img in imgs {
+            let Some((w, h)) = img.box_px((m.width, m.height)) else {
+                continue;
+            };
+            let key = (img.key, w, h);
+            let Some(entry) = self.kitty_images.get(&key) else {
+                self.builder.missing.push(key);
+                continue;
+            };
+            let Some(fitted) = entry else {
+                continue;
+            };
+            let ag = self.atlas.get_image(key, fitted, &self.gpu.queue)?;
+            let x = (img.opts.col - 1) as f32 * m.width + fitted.x as f32;
+            let y = (img.opts.row - 1) as f32 * m.height + fitted.y as f32;
+            self.ui_images.push(Instance {
+                pos: [x, y],
+                size: [fitted.width as f32, fitted.height as f32],
+                uv: [ag.uv[0] as f32, ag.uv[1] as f32],
+                color: u32::MAX,
+                kind: pipeline::KIND_COLOR,
+            });
+        }
+        Ok(())
     }
 
     pub fn take_missing_images(&mut self) -> Vec<FitKey> {

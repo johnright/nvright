@@ -75,6 +75,7 @@ pub struct EditorState {
     pub linespace: i64,
     pub title: Option<String>,
     pub images: crate::kitty::Placements,
+    pub ui_images: crate::ui_img::UiImages,
     pub viewports: HashMap<GridId, Viewport>,
     pub marks: HashMap<u64, Vec<(u32, u8)>>,
     pub mark_colors: Vec<u32>,
