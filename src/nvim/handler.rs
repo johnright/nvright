@@ -146,6 +146,14 @@ impl Handler for RedrawHandler {
                     let _ = self.proxy.send_event(UserEvent::Recent(event));
                 }
             }
+            "nvright_mcursors" => {
+                let flat: Vec<u32> = match args.first() {
+                    Some(Value::Array(a)) => a.iter().filter_map(|v| v.as_u64()).map(|n| n as u32).collect(),
+                    _ => Vec::new(),
+                };
+                let cells = flat.as_chunks::<2>().0.iter().map(|&[r, c]| (r, c)).collect();
+                let _ = self.proxy.send_event(UserEvent::MultiCursors(cells));
+            }
             "nvright_img" => match crate::ui_img::parse_notification(args) {
                 Some(event) => {
                     let _ = self.proxy.send_event(UserEvent::UiImg(event));

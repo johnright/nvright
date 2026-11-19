@@ -18,13 +18,13 @@ use crate::config::NvimLaunch;
 pub async fn run(
     launch: NvimLaunch,
     multigrid: bool,
-    ui_img: bool,
+    lua: LuaFeatures,
     cols: u64,
     rows: u64,
     proxy: EventLoopProxy<UserEvent>,
     commands: UnboundedReceiver<NvimCommand>,
 ) {
-    let result = session(&launch, multigrid, ui_img, cols, rows, proxy.clone(), commands)
+    let result = session(&launch, multigrid, lua, cols, rows, proxy.clone(), commands)
         .await
         .map_err(|err| format!("{err:#}"));
     let _ = proxy.send_event(UserEvent::NvimExited(result));
@@ -33,7 +33,7 @@ pub async fn run(
 async fn session(
     launch: &NvimLaunch,
     multigrid: bool,
-    ui_img: bool,
+    lua: LuaFeatures,
     cols: u64,
     rows: u64,
     proxy: EventLoopProxy<UserEvent>,
@@ -63,7 +63,7 @@ async fn session(
             .await
             .context("nvim_ui_attach failed")?;
         log::info!("ui_attach done after {:?}", started.elapsed());
-        tokio::spawn(install_lua(nvim.clone(), ui_img));
+        tokio::spawn(install_lua(nvim.clone(), lua));
         if restarted && let Err(err) = nvim.exec_lua(EXIT_WITH_GUI, vec![]).await {
             log::warn!(":restart: cannot tie the server to the window: {err}");
         }
@@ -135,7 +135,7 @@ vim.api.nvim_create_autocmd('OptionSet', {
 sync()
 "#;
 
-async fn install_lua(nvim: nvim_rs::Neovim<Writer>, ui_img: bool) {
+async fn install_lua(nvim: nvim_rs::Neovim<Writer>, lua: LuaFeatures) {
     let id = match nvim.get_chan_info(0).await {
         Ok(info) => info
             .iter()
@@ -152,6 +152,9 @@ async fn install_lua(nvim: nvim_rs::Neovim<Writer>, ui_img: bool) {
     }
     if let Err(err) = nvim.exec_lua(crate::preview::LUA, vec![id.into()]).await {
         log::warn!("markdown preview not installed in nvim: {err}");
+    }
+    if lua.multicursor && let Err(err) = nvim.exec_lua(MCURSOR, vec![id.into()]).await {
+        log::warn!("multicursor drawing not set up: {err}");
     }
     if let Err(err) = nvim.exec_lua(crate::scrollbar::LUA, vec![id.into()]).await {
         log::warn!("scrollbar marks not set up in nvim: {err}");
@@ -172,7 +175,7 @@ async fn install_lua(nvim: nvim_rs::Neovim<Writer>, ui_img: bool) {
     if let Err(err) = nvim.exec_lua(crate::kitty::LUA, vec![id.into()]).await {
         log::warn!("kitty graphics not set up in nvim: {err}");
     }
-    if ui_img && let Err(err) = nvim.exec_lua(crate::ui_img::LUA, vec![id.into()]).await {
+    if lua.ui_img && let Err(err) = nvim.exec_lua(crate::ui_img::LUA, vec![id.into()]).await {
         log::warn!("vim.ui.img backend not installed: {err}");
     }
 }
@@ -256,6 +259,14 @@ async fn execute(nvim: &nvim_rs::Neovim<Writer>, cmd: NvimCommand) {
         tokio::spawn(request);
     }
 }
+
+#[derive(Debug, Clone, Copy)]
+pub struct LuaFeatures {
+    pub ui_img: bool,
+    pub multicursor: bool,
+}
+
+const MCURSOR: &str = include_str!("../mcursor.lua");
 
 async fn forward_stderr(stderr: ChildStderr) {
     let mut lines = BufReader::new(stderr).lines();

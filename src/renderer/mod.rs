@@ -66,6 +66,7 @@ pub struct Renderer {
     cursor_quad: Option<([[f32; 2]; 4], u32)>,
     cursor_text: std::ops::Range<u32>,
     ui_images: Vec<Instance>,
+    mcursors: Vec<Instance>,
     ui_range: std::ops::Range<u32>,
     scrolling: HashMap<GridId, Scrolling>,
     scroll_duration: Duration,
@@ -179,6 +180,7 @@ impl Renderer {
             cursor_quad: None,
             cursor_text: 0..0,
             ui_images: Vec::new(),
+            mcursors: Vec::new(),
             ui_range: 0..0,
             scrolling: HashMap::new(),
             scroll_duration: Duration::from_millis(config.scroll_animation_ms),
@@ -409,6 +411,7 @@ impl Renderer {
         self.segments.clear();
         self.cursor_quad = None;
         self.cursor_text = 0..0;
+        self.mcursors.clear();
         self.process_changes(state, acquired);
         if !state.grids.is_empty() {
             self.background = state.hl.defaults().bg;
@@ -443,6 +446,7 @@ impl Renderer {
         let cursor_moving = self.assemble(&order, state, acquired);
         let ui_start = self.instances.len() as u32;
         self.instances.extend_from_slice(&self.ui_images);
+        self.instances.extend_from_slice(&self.mcursors);
         self.ui_range = ui_start..self.instances.len() as u32;
         self.assemble_preview();
         self.animating = scrolling
@@ -1099,6 +1103,28 @@ impl Renderer {
         );
         let (corners, settled) = self.cursor.update(now);
         self.cursor_quad = Some((corners.map(|[cx, cy]| [cx, cy + dy]), bg));
+        for &(r, c) in &state.mcursors {
+            let (x, y) = ((c as f32 - 1.0) * m.width, (r as f32 - 1.0) * m.height);
+            match mode.cursor_shape {
+                CursorShape::Vertical => {
+                    let bw = (m.width * fraction).round().max(1.0);
+                    self.mcursors.push(Instance::solid(x, y, bw, m.height, bg));
+                }
+                CursorShape::Horizontal => {
+                    let ch = (m.height * fraction).round().max(1.0);
+                    self.mcursors.push(Instance::solid(x, y + m.height - ch, m.width, ch, bg));
+                }
+                CursorShape::Block => {
+                    let t = (m.width / 9.0).round().max(1.0);
+                    self.mcursors.extend([
+                        Instance::solid(x, y, m.width, t, bg),
+                        Instance::solid(x, y + m.height - t, m.width, t, bg),
+                        Instance::solid(x, y, t, m.height, bg),
+                        Instance::solid(x + m.width - t, y, t, m.height, bg),
+                    ]);
+                }
+            }
+        }
 
         let start = self.instances.len() as u32;
         if settled && mode.cursor_shape == CursorShape::Block {

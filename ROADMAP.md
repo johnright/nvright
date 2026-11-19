@@ -48,6 +48,7 @@ Nothing here is a promise, and anything that makes typing slower or text worse w
 - [x] translucent window with acrylic blur
 - [x] `:restart`
 - [x] images from `vim.ui.img` (Neovim 0.13)
+- [x] Neovim 0.13 multicursors drawn as real cursors
 
 ## Not planned
 

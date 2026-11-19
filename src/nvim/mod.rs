@@ -3,7 +3,7 @@ pub mod launch;
 pub mod redraw;
 mod session;
 
-pub use session::run;
+pub use session::{LuaFeatures, run};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum NvimCommand {

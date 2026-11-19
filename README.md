@@ -147,6 +147,7 @@ Started from a WSL terminal, Neovim opens in the current folder of that distro.
 | `--preview-font <family>` | Segoe UI | font of the markdown preview |
 | `--preview-font-size <pt>` | the editor font size | text size of the markdown preview |
 | `--no-floating-shadow` | | no shadows under floating windows |
+| `--no-multicursor` | | draw Neovim 0.13 multicursors as plain highlights, not as cursors |
 | `--no-multigrid` | | single grid, Neovim composes the windows |
 | `--present-mode <mode>` | mailbox, else fifo | `fifo`, `fifo-relaxed`, `mailbox`, `immediate` |
 | `--bg <#rrggbb>` | | background color before Neovim sends its own |

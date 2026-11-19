@@ -45,6 +45,7 @@ pub enum UserEvent {
     KittyData(Vec<u8>),
     KittyDistro(String),
     UiImg(crate::ui_img::Event),
+    MultiCursors(Vec<(u32, u32)>),
     KittyFitted(FitKey, Arc<Fitted>),
     Marks(crate::scrollbar::MarksEvent),
     Recent(crate::jumplist::RecentEvent),
@@ -1154,6 +1155,12 @@ impl ApplicationHandler<UserEvent> for App {
             UserEvent::KittyData(data) => self.on_kitty(&data),
             UserEvent::KittyDistro(distro) => self.kitty.set_distro(distro),
             UserEvent::UiImg(event) => self.on_ui_img(event),
+            UserEvent::MultiCursors(cells) => {
+                self.state.mcursors = cells;
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
             UserEvent::KittyFitted(key, image) => {
                 if let (Some(renderer), Some(window)) = (&mut self.renderer, &self.window) {
                     renderer.add_image(key, image);

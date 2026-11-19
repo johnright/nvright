@@ -61,7 +61,10 @@ fn main() -> Result<()> {
     runtime.spawn(nvim::run(
         config.nvim.clone(),
         config.multigrid,
-        config.ui_img,
+        nvim::LuaFeatures {
+            ui_img: config.ui_img,
+            multicursor: config.multicursor,
+        },
         cols,
         rows,
         event_loop.create_proxy(),

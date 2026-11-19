@@ -22,6 +22,7 @@ pub struct Config {
     pub multigrid: bool,
     pub floating_shadow: bool,
     pub ui_img: bool,
+    pub multicursor: bool,
     pub backdrop: f32,
     pub opacity: f32,
     pub blur: bool,
@@ -79,6 +80,7 @@ impl Default for Config {
             multigrid: true,
             floating_shadow: true,
             ui_img: true,
+            multicursor: true,
             backdrop: 0.3,
             opacity: 1.0,
             blur: false,
@@ -113,6 +115,7 @@ usage: nvright [options] [file...] [-- arguments for nvim]
   --no-multigrid          everything on a single grid (no ext_multigrid)
   --no-floating-shadow    no shadow under floating windows
   --no-ui-img             leave vim.ui.img alone (Neovim 0.13+), images from it won't show
+  --no-multicursor        leave Neovim 0.13 multicursors as highlighted cells
   --backdrop <0-1>        dimming behind a focused float, 0 = off (default: 0.3)
   --opacity <0.1-1>       opacity of the default background, text stays opaque (default: 1)
   --blur                  blur what's behind the window (Windows 11 acrylic, needs opacity < 1)
@@ -218,6 +221,7 @@ impl Config {
                 "--no-multigrid" => self.multigrid = false,
                 "--no-floating-shadow" => self.floating_shadow = false,
                 "--no-ui-img" => self.ui_img = false,
+                "--no-multicursor" => self.multicursor = false,
                 flag if flag.starts_with("--") => {
                     let value = args
                         .next()
@@ -241,6 +245,7 @@ impl Config {
             "multigrid" => self.multigrid = on,
             "floating-shadow" => self.floating_shadow = on,
             "ui-img" => self.ui_img = on,
+            "multicursor" => self.multicursor = on,
             "blur" => self.blur = on,
             "hidden" => self.hidden = on,
             _ => bail!("unknown or non-boolean option: {key}"),
