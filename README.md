@@ -256,6 +256,11 @@ To regenerate the icon after editing `assets/icon.svg`:
 cargo run --release --manifest-path tools/icon/Cargo.toml
 ```
 
+## Support
+
+nvright is free and stays that way. If it saves you time you can
+[sponsor it on GitHub](https://github.com/sponsors/johnright).
+
 ## Roadmap
 
 Next: a prebuilt release you can install with Scoop. More in
