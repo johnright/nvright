@@ -9,7 +9,7 @@ It's a native Windows app in Rust (winit, wgpu on Vulkan, DirectWrite for the
 text) that starts `nvim --embed` in your WSL distro, with your usual config and
 plugins.
 
-![Demo: cursor trail, smooth scrolling, typing, the file picker and the markdown preview](assets/screenshots/demo.gif)
+![Demo: cursor trail, smooth scrolling, typing, multicursors, the file picker, the markdown preview and an image in a buffer](assets/screenshots/demo.gif)
 
 ![Code view](assets/screenshots/code.png)
 
@@ -17,14 +17,13 @@ plugins.
 
 ## Why
 
-I run Neovim in WSL, and on Windows the obvious GUI for that is Neovide. But
-typing never felt quite as immediate as I wanted, and after Zed I missed its
-text: real ClearType, rasterized by
-DirectWrite with the system gamma and contrast, not an approximation.
+I run Neovim in WSL on a Windows laptop. Typing in a GUI never felt quite as
+immediate as I wanted, and after Zed I missed its text: real ClearType,
+rasterized by DirectWrite with the system gamma and contrast, not an
+approximation.
 
 So I started this to see how far I could get caring mostly about those two
-things. It does less than Neovide and only targets one setup, Windows with
-Neovim in WSL.
+things. It only targets one setup, Windows with Neovim in WSL.
 
 On my machine, with a full config (treesitter, LSP, completion), key press to
 presented frame is about **3 ms median, 5 ms p90**, and nearly all of that is
