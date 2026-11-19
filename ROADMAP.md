@@ -15,7 +15,7 @@ Nothing here is a promise, and anything that makes typing slower or text worse w
 - [x] **Images in markdown** – paste a screenshot or drop an image file and get
   a link
 - [x] **New name: nvright** – right_editor said nothing about Neovim
-- [ ] **Releases** – a prebuilt `.exe` on GitHub Releases and `scoop install nvright`,
+- [x] **Releases** – a prebuilt `.exe` on GitHub Releases and `scoop install nvright`,
   no cross-compiling toolchain needed
 - [x] **Scrollbar** – thin, drawn over the text while you scroll, with marks for
   search matches, diagnostics and git changes. You can drag it

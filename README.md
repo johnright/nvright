@@ -15,6 +15,20 @@ plugins.
 
 ![The markdown preview, next to this README](assets/screenshots/preview.png)
 
+## Install
+
+With [Scoop](https://scoop.sh):
+
+```
+scoop bucket add nvright https://github.com/johnright/nvright
+scoop install nvright
+```
+
+That puts `nvright` on the `PATH` and in the Start menu. Or take the zip from
+[Releases](https://github.com/johnright/nvright/releases) and put
+`nvright.exe` anywhere. Neovim itself goes in your WSL distro, see
+[Requirements](#requirements).
+
 ## Why
 
 I run Neovim in WSL on a Windows laptop. Typing in a GUI never felt quite as
@@ -59,7 +73,9 @@ it graphics driver; the app's own heap is a couple of MB.
   works. nvright speaks the part of the kitty graphics protocol it uses
   (unicode placeholders), so images scroll, split and sit under floats like
   any other text. PNG, JPEG, GIF, WebP and SVG are decoded by the GUI, no
-  ImageMagick needed.
+  ImageMagick needed. On Neovim 0.13, images from `vim.ui.img` show up too.
+- Neovim 0.13 multicursors are drawn as real cursors: bars in insert mode,
+  hollow blocks in normal mode, in the cursor's color.
 - A scrollbar over the right edge of each window, shown while scrolling or
   under the mouse, with marks for search matches, diagnostics and gitsigns
   hunks. Drag it or click the track to jump.
@@ -84,7 +100,8 @@ it graphics driver; the app's own heap is a couple of MB.
 ## Requirements
 
 - Windows 10/11 with a Vulkan or DX12 GPU.
-- WSL with Neovim 0.12.5 or newer installed in the distro (tested with 0.12.6).
+- WSL with Neovim 0.12.5 or newer installed in the distro (tested with 0.12.6
+  and the 0.13 nightly).
 - A Nerd Font if your config uses icons.
 
 ## Building
@@ -146,6 +163,7 @@ Started from a WSL terminal, Neovim opens in the current folder of that distro.
 | `--preview-font <family>` | Segoe UI | font of the markdown preview |
 | `--preview-font-size <pt>` | the editor font size | text size of the markdown preview |
 | `--no-floating-shadow` | | no shadows under floating windows |
+| `--no-ui-img` | | leave `vim.ui.img` to Neovim (0.13+) |
 | `--no-multicursor` | | draw Neovim 0.13 multicursors as plain highlights, not as cursors |
 | `--no-multigrid` | | single grid, Neovim composes the windows |
 | `--present-mode <mode>` | mailbox, else fifo | `fifo`, `fifo-relaxed`, `mailbox`, `immediate` |
@@ -263,7 +281,8 @@ nvright is free and stays that way. If it saves you time you can
 
 ## Roadmap
 
-Next: a prebuilt release you can install with Scoop. More in
+Next up: Ctrl+click on links and `file:line` paths, a hollow cursor when the
+window isn't focused, and errors shown in the window. More in
 [ROADMAP.md](ROADMAP.md). If something breaks on your setup, open an issue.
 
 ## License

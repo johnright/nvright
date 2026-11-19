@@ -1,0 +1,20 @@
+{
+    "version": "0.3.0",
+    "description": "Neovim GUI for Windows, for Neovim running in WSL",
+    "homepage": "https://github.com/johnright/nvright",
+    "license": "MIT",
+    "url": "https://github.com/johnright/nvright/releases/download/v0.3.0/nvright-0.3.0-windows-x64.zip",
+    "hash": "5d76d39d7820fa0070a84b096fdbd4d8452adb10274d640ebf44f910d99ad093",
+    "bin": "nvright.exe",
+    "shortcuts": [
+        [
+            "nvright.exe",
+            "nvright",
+            "--cwd ~"
+        ]
+    ],
+    "checkver": "github",
+    "autoupdate": {
+        "url": "https://github.com/johnright/nvright/releases/download/v$version/nvright-$version-windows-x64.zip"
+    }
+}
