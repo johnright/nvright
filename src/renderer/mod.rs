@@ -23,7 +23,7 @@ use crate::kitty::{FitKey, Fitted};
 use crate::latency::FrameTimings;
 use crate::nvim::redraw::CursorShape;
 use crate::nvim::redraw::GridId;
-use crate::preview::{ImageData, Preview};
+use crate::preview::Preview;
 use animation::{CursorAnimation, Region, Scrolling};
 use atlas::{Atlas, AtlasFull};
 use cells::{RowBuilder, RowContext, RowInstances};
@@ -98,7 +98,10 @@ struct PreviewPaint {
     rects: Vec<Instance>,
     glyphs: Vec<Instance>,
     quads: Vec<(String, ImageQuad)>,
-    textures: HashMap<String, (Arc<ImageData>, ImageTexture)>,
+    textures: HashMap<String, (ImageTexture, Instant)>,
+    epoch: u64,
+    uploaded: Vec<String>,
+    wanted: Vec<String>,
     rect_range: std::ops::Range<u32>,
     glyph_range: std::ops::Range<u32>,
     panel: Option<[u32; 4]>,
@@ -484,7 +487,7 @@ impl Renderer {
             self.cursor_pipeline
                 .upload(&self.gpu.queue, corners, rgb, screen);
         }
-        let image_textures = self.upload_preview_images(preview, screen);
+        let image_textures = self.upload_preview_images(preview, screen, acquired);
 
         let view = frame
             .texture
@@ -538,7 +541,7 @@ impl Renderer {
                 self.pipeline.draw(&mut pass, &[rects], size);
                 let textures: Vec<&ImageTexture> = image_textures
                     .iter()
-                    .filter_map(|url| self.preview.textures.get(url).map(|(_, t)| t))
+                    .filter_map(|url| self.preview.textures.get(url).map(|(t, _)| t))
                     .collect();
                 self.images.draw(&mut pass, &textures, panel);
                 let glyphs = Segment {
@@ -1259,21 +1262,29 @@ impl Renderer {
         p.panel = panel.map(|[x, y, w, h]| scissor(x, y, w, h));
     }
 
-    fn upload_preview_images(&mut self, preview: &Preview, screen: [f32; 2]) -> Vec<String> {
+    fn upload_preview_images(
+        &mut self,
+        preview: &Preview,
+        screen: [f32; 2],
+        now: Instant,
+    ) -> Vec<String> {
+        const KEEP: Duration = Duration::from_secs(2);
         let p = &mut self.preview;
-        p.textures.retain(|url, (data, _)| {
-            preview
-                .images
-                .get(url)
-                .is_some_and(|d| Arc::ptr_eq(d, data))
+        if p.epoch != preview.image_epoch {
+            p.textures.clear();
+            p.epoch = preview.image_epoch;
+        }
+        let visible: std::collections::HashSet<&str> =
+            p.quads.iter().map(|(url, _)| url.as_str()).collect();
+        p.textures.retain(|url, (_, used)| {
+            visible.contains(url.as_str()) || now.saturating_duration_since(*used) < KEEP
         });
         let mut urls = Vec::new();
         let mut quads = Vec::new();
         for (url, quad) in &p.quads {
-            let Some(data) = preview.images.get(url) else {
-                continue;
-            };
-            if !p.textures.contains_key(url) {
+            if let Some((_, used)) = p.textures.get_mut(url) {
+                *used = now;
+            } else if let Some(data) = preview.images.get(url) {
                 let texture = self.images.create_texture(
                     &self.gpu.device,
                     &self.gpu.queue,
@@ -1281,7 +1292,11 @@ impl Renderer {
                     data.height,
                     &data.rgba,
                 );
-                p.textures.insert(url.clone(), (data.clone(), texture));
+                p.textures.insert(url.clone(), (texture, now));
+                p.uploaded.push(url.clone());
+            } else {
+                p.wanted.push(url.clone());
+                continue;
             }
             urls.push(url.clone());
             quads.push(*quad);
@@ -1289,6 +1304,16 @@ impl Renderer {
         self.images
             .upload(&self.gpu.device, &self.gpu.queue, &quads, screen);
         urls
+    }
+
+    pub fn take_uploaded(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.preview.uploaded)
+    }
+
+    pub fn take_wanted(&mut self) -> Vec<String> {
+        let mut wanted = std::mem::take(&mut self.preview.wanted);
+        wanted.dedup();
+        wanted
     }
 
     fn backdrop_level(&mut self, active: bool, now: Instant) -> (f32, bool) {

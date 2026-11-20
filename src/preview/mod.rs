@@ -137,8 +137,11 @@ pub struct Preview {
     pub doc: Option<Arc<Document>>,
     pub manual_scroll: Option<f32>,
     pub images: HashMap<String, Arc<ImageData>>,
+    pub image_epoch: u64,
     image_sizes: HashMap<String, ImageSize>,
     requested_images: Vec<String>,
+    loading: Vec<String>,
+    fit: (u32, f32),
     generation: u64,
     last_job: Option<(Arc<str>, Params)>,
     sink: Sink,
@@ -174,8 +177,11 @@ impl Preview {
             doc: None,
             manual_scroll: None,
             images: HashMap::new(),
+            image_epoch: 0,
             image_sizes: HashMap::new(),
             requested_images: Vec::new(),
+            loading: Vec::new(),
+            fit: (0, 1.0),
             generation: 0,
             last_job: None,
             sink,
@@ -199,6 +205,9 @@ impl Preview {
             PreviewEvent::Open(open) => {
                 let changed = open != self.open;
                 self.open = open;
+                if !open {
+                    self.images.clear();
+                }
                 changed
             }
             PreviewEvent::Text {
@@ -209,8 +218,10 @@ impl Preview {
             } => {
                 if path != self.path {
                     self.images.clear();
+                    self.image_epoch += 1;
                     self.image_sizes.clear();
                     self.requested_images.clear();
+                    self.loading.clear();
                     self.manual_scroll = None;
                 }
                 self.path = path;
@@ -305,46 +316,66 @@ impl Preview {
         if generation != self.generation {
             return false;
         }
+        self.fit = (max_width, scale);
         for url in &doc.missing_images {
-            if self.requested_images.contains(url) {
-                continue;
-            }
-            self.requested_images.push(url.clone());
-            match resolve_image(&self.path, url, &self.distro) {
-                Some(source) => {
-                    let request = LoadRequest {
-                        url: url.clone(),
-                        source,
-                        max_width,
-                        scale,
-                        fonts: self.fonts.clone(),
-                    };
-                    if matches!(request.source, ImageSource::Web(_)) {
-                        let sink = self.sink.clone();
-                        let spawned = std::thread::Builder::new()
-                            .name("download".into())
-                            .spawn(move || load(request, &sink));
-                        if let Err(err) = spawned {
-                            log::error!("preview: download not started: {err}");
-                        }
-                    } else {
-                        let loader = self
-                            .loader
-                            .get_or_insert_with(|| spawn_loader(self.sink.clone()));
-                        let _ = loader.send(request);
-                    }
-                }
-                None => {
-                    log::info!("preview: unsupported image: {url}");
-                    self.image_sizes.insert(url.clone(), ImageSize::Failed);
-                }
+            if !self.requested_images.contains(url) {
+                self.requested_images.push(url.clone());
+                self.request(url);
             }
         }
         self.doc = Some(doc);
         true
     }
 
+    pub fn reload(&mut self, urls: Vec<String>) {
+        // log::info!("reload {urls:?} open={}", self.open);
+        for url in urls {
+            if !self.open || self.images.contains_key(&url) || self.loading.contains(&url) {
+                continue;
+            }
+            self.request(&url);
+        }
+    }
+
+    pub fn uploaded(&mut self, urls: Vec<String>) {
+        // if !urls.is_empty() { log::info!("uploaded {urls:?}"); }
+        for url in urls {
+            self.images.remove(&url);
+        }
+    }
+
+    fn request(&mut self, url: &str) {
+        let Some(source) = resolve_image(&self.path, url, &self.distro) else {
+            log::info!("preview: unsupported image: {url}");
+            self.image_sizes.insert(url.to_string(), ImageSize::Failed);
+            return;
+        };
+        self.loading.push(url.to_string());
+        let request = LoadRequest {
+            url: url.to_string(),
+            source,
+            max_width: self.fit.0,
+            scale: self.fit.1,
+            fonts: self.fonts.clone(),
+        };
+        if matches!(request.source, ImageSource::Web(_)) {
+            let sink = self.sink.clone();
+            let spawned = std::thread::Builder::new()
+                .name("download".into())
+                .spawn(move || load(request, &sink));
+            if let Err(err) = spawned {
+                log::error!("preview: download not started: {err}");
+            }
+        } else {
+            let loader = self
+                .loader
+                .get_or_insert_with(|| spawn_loader(self.sink.clone()));
+            let _ = loader.send(request);
+        }
+    }
+
     pub fn image_loaded(&mut self, url: String, result: Result<Arc<ImageData>, String>) {
+        self.loading.retain(|u| *u != url);
         match result {
             Ok(data) => {
                 let (w, h) = data.natural;

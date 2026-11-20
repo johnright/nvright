@@ -1079,6 +1079,11 @@ impl ApplicationHandler<UserEvent> for App {
                 for key in renderer.take_missing_images() {
                     self.kitty.fit(key);
                 }
+                self.preview.uploaded(renderer.take_uploaded());
+                let wanted = renderer.take_wanted();
+                if !wanted.is_empty() {
+                    self.preview.reload(wanted);
+                }
                 let busy = self.animating || self.hidden_since.is_some();
                 match &self.vsync {
                     Some(vsync) => vsync.set_active(busy),
