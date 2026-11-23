@@ -73,7 +73,11 @@ pub fn bridge_command(launch: &NvimLaunch, addr: &str) -> Option<Command> {
         cmd.arg("-e");
         cmd
     } else if cfg!(windows) {
-        return None;
+        let script = std::env::temp_dir().join(format!("nvright-bridge-{}.lua", std::process::id()));
+        std::fs::write(&script, BRIDGE).ok()?;
+        let mut cmd = Command::new(&launch.nvim);
+        cmd.args(["--clean", "--headless", "-l"]).arg(script).arg(addr);
+        return Some(finish(cmd));
     } else {
         let mut cmd = Command::new("sh");
         cmd.arg("-c");

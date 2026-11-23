@@ -650,6 +650,15 @@ impl Renderer {
             return;
         }
         let done = now.checked_sub(self.float_animation).unwrap_or(now);
+        let cursor = order
+            .iter()
+            .find(|(id, _, _)| *id == state.cursor.grid)
+            .map(|&(_, row, col)| CellRect {
+                row: row + state.cursor.row as i64,
+                col: col + state.cursor.col as i64,
+                width: 1,
+                height: 1,
+            });
         let open: Vec<CellRect> = eligible
             .iter()
             .filter(|(id, _)| self.float_since.contains_key(id))
@@ -659,7 +668,9 @@ impl Renderer {
             if self.float_since.contains_key(&id) {
                 continue;
             }
+            let at_cursor = cursor.is_some_and(|c| rect.touches(&c) && !rect.contains(&c));
             let since = match self.float_group {
+                _ if at_cursor => done,
                 Some(g) if now.saturating_duration_since(g) < self.float_animation => g,
                 _ if open.iter().any(|o| o.touches(&rect)) => done,
                 _ => *self.float_group.insert(now),
@@ -1466,6 +1477,13 @@ impl CellRect {
             && other.row <= self.row + self.height
             && self.col <= other.col + other.width
             && other.col <= self.col + self.width
+    }
+
+    fn contains(&self, other: &CellRect) -> bool {
+        other.row >= self.row
+            && other.col >= self.col
+            && other.row + other.height <= self.row + self.height
+            && other.col + other.width <= self.col + self.width
     }
 }
 

@@ -88,7 +88,7 @@ async fn session(
             return Ok(format!("nvim exited ({status})"));
         };
         cmd = launch::bridge_command(launch, &addr)
-            .context(":restart is not supported with a native Windows nvim")?;
+            .context(":restart: cannot write the bridge script")?;
         restarted = true;
         let _ = proxy.send_event(UserEvent::NvimRestarted);
     }
