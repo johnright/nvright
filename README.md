@@ -233,7 +233,11 @@ These are handled by the GUI and never reach Neovim:
   `:NvrightPreview`, `:NvrightPreview!` hides it). It follows the
   current markdown buffer and keeps the last one while you edit other files.
   The mouse wheel over the panel scrolls it on its own until Neovim scrolls.
-  A click on a link follows it, anywhere else it moves the cursor to that line.
+  A click on a link follows it, anywhere else it moves the cursor to that line;
+- `Ctrl` + click on a URL opens it in the browser, on a path opens the file,
+  at the line if there is one (`src/main.rs:12:5`, `app.ts(40,7)`). Works on
+  compiler output in a `:terminal` too: relative paths are looked up from the
+  shell's current folder.
 
 ## Measuring latency
 
@@ -281,8 +285,8 @@ nvright is free and stays that way. If it saves you time you can
 
 ## Roadmap
 
-Next up: Ctrl+click on links and `file:line` paths, a hollow cursor when the
-window isn't focused, and errors shown in the window. More in
+Next up: a hollow cursor when the window isn't focused, and errors shown in
+the window. More in
 [ROADMAP.md](ROADMAP.md). If something breaks on your setup, open an issue.
 
 ## License

@@ -224,6 +224,18 @@ impl Grid {
         dst_row.dirty = true;
     }
 
+    pub fn row_cells(&self, row: usize, text: &TextInterner) -> Vec<String> {
+        self.rows[row]
+            .cells
+            .iter()
+            .map(|cell| {
+                let mut s = String::new();
+                text.push_to(cell.text, &mut s);
+                s
+            })
+            .collect()
+    }
+
     pub fn row_text(&self, row: usize, text: &TextInterner) -> String {
         let mut out = String::with_capacity(self.width);
         for cell in &self.rows[row].cells {

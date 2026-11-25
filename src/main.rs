@@ -9,6 +9,7 @@ mod input;
 mod jumplist;
 mod kitty;
 mod latency;
+mod links;
 mod nvim;
 mod preview;
 mod renderer;

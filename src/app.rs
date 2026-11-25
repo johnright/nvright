@@ -17,6 +17,7 @@ use crate::config::Config;
 use crate::editor::{EditorState, Layer, MAIN_GRID};
 use crate::input::{self, Mods};
 use crate::latency::Latency;
+use crate::links::Link;
 use crate::nvim::NvimCommand;
 use crate::nvim::redraw::RedrawEvent;
 use crate::preview::layout::{Document, Params};
@@ -66,6 +67,7 @@ pub struct App {
     mods: Mods,
     mouse: (f64, f64),
     pointer_on_link: bool,
+    link_click: bool,
     scroll_accum: (f64, f64),
     wheel_lines: (f64, f64),
     zoom_accum: f64,
@@ -158,6 +160,7 @@ impl App {
             mods: Mods::default(),
             mouse: (0.0, 0.0),
             pointer_on_link: false,
+            link_click: false,
             scroll_accum: (0.0, 0.0),
             wheel_lines: (1.0, 1.0),
             zoom_accum: 0.0,
@@ -757,6 +760,28 @@ impl App {
         ));
     }
 
+    fn link_under_mouse(&self) -> Option<(u64, Link)> {
+        let (row, col) = self.mouse_cell()?;
+        let (grid, r, c) = self.state.grid_at(row as i64, col as i64)?;
+        let cells = self.state.grids.get(&grid)?.row_cells(r as usize, &self.state.text);
+        Some((grid, crate::links::at(&cells, c as usize)?))
+    }
+
+    fn follow(&self, grid: u64, link: Link) {
+        match link {
+            Link::Url(url) if self.config.hidden => log::info!("hidden, not opening {url}"),
+            Link::Url(url) => crate::links::open_url(&url),
+            Link::File { path, line, col } => {
+                let win = self.state.viewports.get(&grid).map_or(0, |v| v.win);
+                let num = |n: Option<u32>| n.map_or(rmpv::Value::Nil, rmpv::Value::from);
+                self.send(NvimCommand::Lua(
+                    crate::links::OPEN.into(),
+                    vec![win.into(), path.into(), num(line), num(col)],
+                ));
+            }
+        }
+    }
+
     fn on_mouse_button(&mut self, state: ElementState, button: MouseButton) {
         let name = match button {
             MouseButton::Left => "left",
@@ -778,6 +803,18 @@ impl App {
                         self.drag_bar(id);
                         return;
                     }
+                    if self.mods.ctrl
+                        && !self.over_panel()
+                        && let Some((grid, link)) = self.link_under_mouse()
+                    {
+                        self.link_click = true;
+                        self.follow(grid, link);
+                        return;
+                    }
+                }
+                ElementState::Released if self.link_click => {
+                    self.link_click = false;
+                    return;
                 }
                 ElementState::Released if self.bar_drag.is_some() => {
                     self.bar_drag = None;
@@ -823,20 +860,7 @@ impl App {
             let hover = self.bar_at();
             self.set_bar_hover(hover);
         }
-        let on_link = self.dragging.is_none()
-            && self
-                .preview_point()
-                .is_some_and(|(x, y, doc)| doc.link_at(x, y).is_some());
-        if on_link != self.pointer_on_link
-            && let Some(window) = &self.window
-        {
-            window.set_cursor(if on_link {
-                CursorIcon::Pointer
-            } else {
-                CursorIcon::Default
-            });
-            self.pointer_on_link = on_link;
-        }
+        self.update_pointer();
         if self.dragging.is_none() && self.over_panel() {
             return;
         }
@@ -853,6 +877,26 @@ impl App {
                 self.send_mouse(button, "drag");
             }
             None => self.send_mouse("move", ""),
+        }
+    }
+
+    fn update_pointer(&mut self) {
+        let on_link = self.dragging.is_none()
+            && if self.over_panel() {
+                self.preview_point()
+                    .is_some_and(|(x, y, doc)| doc.link_at(x, y).is_some())
+            } else {
+                self.mods.ctrl && self.link_under_mouse().is_some()
+            };
+        if on_link != self.pointer_on_link
+            && let Some(window) = &self.window
+        {
+            window.set_cursor(if on_link {
+                CursorIcon::Pointer
+            } else {
+                CursorIcon::Default
+            });
+            self.pointer_on_link = on_link;
         }
     }
 
@@ -973,6 +1017,7 @@ impl ApplicationHandler<UserEvent> for App {
         match &event {
             WindowEvent::ModifiersChanged(m) => {
                 self.mods = m.state().into();
+                self.update_pointer();
                 return;
             }
             WindowEvent::KeyboardInput {

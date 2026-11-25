@@ -27,7 +27,7 @@ Nothing here is a promise, and anything that makes typing slower or text worse w
 
 ## Later
 
-- [ ] Ctrl+click on URLs and `file:line` paths, `:terminal` output too
+- [x] Ctrl+click on URLs and `file:line` paths, `:terminal` output too
 - [ ] hollow cursor when the window isn't focused, blinking from `guicursor`
 - [ ] startup errors shown in the window (the release build has no console)
 - [ ] dropping a folder does `:cd`, Ctrl while dropping opens a split
