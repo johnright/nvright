@@ -28,11 +28,22 @@ Nothing here is a promise, and anything that makes typing slower or text worse w
 ## Later
 
 - [x] Ctrl+click on URLs and `file:line` paths, `:terminal` output too
+- [x] background image under the text
+- [ ] `:Nvright` changes settings from Neovim, live, and saves them to `config.toml`
 - [ ] hollow cursor when the window isn't focused, blinking from `guicursor`
 - [ ] startup errors shown in the window (the release build has no console)
 - [ ] dropping a folder does `:cd`, Ctrl while dropping opens a split
+- [ ] a native `nvim.exe` when there is no WSL
+- [ ] Neovim on another machine over ssh
 - [ ] Windows paths as command line arguments
+- [ ] "Open with nvright" in the Explorer menus of files and folders (`nvright --register`)
+- [ ] a notification when a newer release is out
 - [ ] IME candidate window and emoji panel at the cursor
+- [ ] OpenType font features: stylistic sets, character variants, ligatures off
+- [ ] title bar in the colorscheme's colors
+- [ ] `background` following the Windows light/dark mode
+- [ ] LSP and other progress on the taskbar button, red dot for errors
+- [ ] file icons drawn as images: Symbols built in, or any VS Code icon theme
 
 ## Maybe
 

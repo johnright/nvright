@@ -7,6 +7,7 @@ use bytemuck::{Pod, Zeroable};
 pub struct ImageQuad {
     pub pos: [f32; 2],
     pub size: [f32; 2],
+    pub alpha: f32,
 }
 
 #[repr(C)]
@@ -25,21 +26,23 @@ struct Globals { screen: vec2<f32>, pad: vec2<f32> };
 struct Out {
     @builtin(position) pos: vec4<f32>,
     @location(0) uv: vec2<f32>,
+    @location(1) alpha: f32,
 };
 
 @vertex
-fn vs_main(@builtin(vertex_index) vi: u32, @location(0) pos: vec2<f32>, @location(1) size: vec2<f32>) -> Out {
+fn vs_main(@builtin(vertex_index) vi: u32, @location(0) pos: vec2<f32>, @location(1) size: vec2<f32>, @location(2) alpha: f32) -> Out {
     let corner = vec2<f32>(f32(vi & 1u), f32(vi >> 1u));
     let p = pos + corner * size;
     var out: Out;
     out.pos = vec4<f32>(p.x / globals.screen.x * 2.0 - 1.0, 1.0 - p.y / globals.screen.y * 2.0, 0.0, 1.0);
     out.uv = corner;
+    out.alpha = alpha;
     return out;
 }
 
 @fragment
 fn fs_main(in: Out) -> @location(0) vec4<f32> {
-    return textureSample(image, smp, in.uv);
+    return textureSample(image, smp, in.uv) * in.alpha;
 }
 ";
 
@@ -102,7 +105,7 @@ impl ImagePipeline {
             bind_group_layouts: &[Some(&globals_layout), Some(&texture_layout)],
             immediate_size: 0,
         });
-        let attributes = wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2];
+        let attributes = wgpu::vertex_attr_array![0 => Float32x2, 1 => Float32x2, 2 => Float32];
         let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
             label: Some("image"),
             layout: Some(&layout),
@@ -284,5 +287,26 @@ impl ImagePipeline {
             let i = i as u32;
             pass.draw(0..4, i..i + 1);
         }
+    }
+
+    pub fn draw_one(
+        &self,
+        pass: &mut wgpu::RenderPass<'_>,
+        texture: &ImageTexture,
+        index: u32,
+        [x, y, w, h]: [u32; 4],
+        screen: [u32; 2],
+    ) {
+        let (x, y) = (x.min(screen[0]), y.min(screen[1]));
+        let (w, h) = (w.min(screen[0] - x), h.min(screen[1] - y));
+        if w == 0 || h == 0 {
+            return;
+        }
+        pass.set_pipeline(&self.pipeline);
+        pass.set_bind_group(0, &self.globals_group, &[]);
+        pass.set_bind_group(1, &texture.bind_group, &[]);
+        pass.set_vertex_buffer(0, self.quads.slice(..));
+        pass.set_scissor_rect(x, y, w, h);
+        pass.draw(0..4, index..index + 1);
     }
 }

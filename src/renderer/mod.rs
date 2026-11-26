@@ -87,7 +87,18 @@ pub struct Renderer {
     atlas_epoch: u64,
     preview: PreviewPaint,
     images: ImagePipeline,
+    wallpaper: Option<Wallpaper>,
+    wallpaper_opacity: f32,
 }
+
+struct Wallpaper {
+    texture: ImageTexture,
+    size: (u32, u32),
+    since: Instant,
+    quad: Option<u32>,
+}
+
+const WALLPAPER_FADE: Duration = Duration::from_millis(250);
 
 #[derive(Default)]
 struct PreviewPaint {
@@ -204,6 +215,8 @@ impl Renderer {
             atlas_epoch: 0,
             preview: PreviewPaint::default(),
             images,
+            wallpaper: None,
+            wallpaper_opacity: config.background_image_opacity,
         })
     }
 
@@ -516,7 +529,21 @@ impl Renderer {
                 self.gpu.surface_config.width,
                 self.gpu.surface_config.height,
             ];
-            self.pipeline.draw(&mut pass, &self.segments, size);
+            match self.wallpaper.as_ref().and_then(|w| Some((&w.texture, w.quad?))) {
+                Some((texture, quad)) => {
+                    self.images
+                        .draw_one(&mut pass, texture, quad, [0, 0, size[0], size[1]], size);
+                    for run in self.segments.split_inclusive(|s| s.replace) {
+                        self.pipeline.draw(&mut pass, run, size);
+                        if let Some(base) = run.last().filter(|s| s.replace)
+                            && let Some(scissor) = base.scissor
+                        {
+                            self.images.draw_one(&mut pass, texture, quad, scissor, size);
+                        }
+                    }
+                }
+                None => self.pipeline.draw(&mut pass, &self.segments, size),
+            }
             let ui = Segment {
                 range: self.ui_range.clone(),
                 scissor: None,
@@ -599,6 +626,20 @@ impl Renderer {
             });
         }
         Ok(())
+    }
+
+    pub fn set_wallpaper(&mut self, image: &image::RgbaImage) {
+        let (w, h) = image.dimensions();
+        let texture = self
+            .images
+            .create_texture(&self.gpu.device, &self.gpu.queue, w, h, image);
+        self.wallpaper = Some(Wallpaper {
+            texture,
+            size: (w, h),
+            since: Instant::now(),
+            quad: None,
+        });
+        self.rows.clear();
     }
 
     pub fn take_missing_images(&mut self) -> Vec<FitKey> {
@@ -749,7 +790,8 @@ impl Renderer {
                 text: &state.text,
                 metrics: self.fonts.metrics,
                 queue: &self.gpu.queue,
-                paint_default_bg: id != MAIN_GRID && (self.opacity >= 1.0 || floating),
+                paint_default_bg: id != MAIN_GRID
+                    && ((self.opacity >= 1.0 && self.wallpaper.is_none()) || floating),
                 placements: &state.images,
                 images: &self.kitty_images,
             };
@@ -1228,6 +1270,7 @@ impl Renderer {
                     ImageQuad {
                         pos: [px + img.x, py + img.y - scroll],
                         size: [img.w, img.h],
+                        alpha: 1.0,
                     },
                 ));
             }
@@ -1311,6 +1354,22 @@ impl Renderer {
             }
             urls.push(url.clone());
             quads.push(*quad);
+        }
+        if let Some(wp) = &mut self.wallpaper {
+            let s = crate::wallpaper::cover_scale(wp.size, (screen[0] as u32, screen[1] as u32));
+            let size = [wp.size.0 as f32 * s, wp.size.1 as f32 * s];
+            let t = now.saturating_duration_since(wp.since).as_secs_f32()
+                / WALLPAPER_FADE.as_secs_f32();
+            wp.quad = Some(quads.len() as u32);
+            quads.push(ImageQuad {
+                pos: [
+                    ((screen[0] - size[0]) / 2.0).round(),
+                    ((screen[1] - size[1]) / 2.0).round(),
+                ],
+                size,
+                alpha: self.wallpaper_opacity * t.min(1.0),
+            });
+            self.animating |= t < 1.0;
         }
         self.images
             .upload(&self.gpu.device, &self.gpu.queue, &quads, screen);

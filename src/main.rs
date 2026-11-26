@@ -17,6 +17,7 @@ mod scrollbar;
 mod snapshot;
 mod ui_img;
 mod vsync;
+mod wallpaper;
 mod window_state;
 
 use anyhow::Result;

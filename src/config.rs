@@ -26,6 +26,8 @@ pub struct Config {
     pub backdrop: f32,
     pub opacity: f32,
     pub blur: bool,
+    pub background_image: Option<String>,
+    pub background_image_opacity: f32,
     pub hidden: bool,
     pub preview_width: f32,
     pub preview_font: Option<String>,
@@ -84,6 +86,8 @@ impl Default for Config {
             backdrop: 0.3,
             opacity: 1.0,
             blur: false,
+            background_image: None,
+            background_image_opacity: 0.2,
             hidden: false,
             preview_width: 0.45,
             preview_font: None,
@@ -119,6 +123,8 @@ usage: nvright [options] [file...] [-- arguments for nvim]
   --backdrop <0-1>        dimming behind a focused float, 0 = off (default: 0.3)
   --opacity <0.1-1>       opacity of the default background, text stays opaque (default: 1)
   --blur                  blur what's behind the window (Windows 11 acrylic, needs opacity < 1)
+  --background-image <path>  image under the text, scaled to cover the window
+  --background-image-opacity <0-1>  how much of it shows through the background (default: 0.2)
   --hidden                for automated tests: never shown or focused, no window.toml,
                           a posted WM_APP+0x52 (wParam = n) saves %TEMP%\\re_snap_<pid>_<n>.png
   --preview-width <0.2-0.8>  width of the markdown preview panel (default: 0.45)
@@ -308,6 +314,14 @@ impl Config {
                     .ok()
                     .filter(|o: &f32| (0.1..=1.0).contains(o))
                     .with_context(|| format!("invalid opacity: {value} (0.1-1)"))?;
+            }
+            "background-image" => self.background_image = Some(value.to_string()),
+            "background-image-opacity" => {
+                self.background_image_opacity = value
+                    .parse()
+                    .ok()
+                    .filter(|o: &f32| (0.0..=1.0).contains(o))
+                    .with_context(|| format!("invalid opacity: {value} (0-1)"))?;
             }
             "preview-width" => {
                 self.preview_width = value

@@ -51,6 +51,7 @@ pub enum UserEvent {
     Marks(crate::scrollbar::MarksEvent),
     Recent(crate::jumplist::RecentEvent),
     JumpListRemoved(Vec<String>),
+    Wallpaper(Result<image::RgbaImage, String>),
     Spawn(String),
 }
 
@@ -78,6 +79,7 @@ pub struct App {
     bar_sent: Option<u64>,
     recent: Option<crate::jumplist::Recent>,
     jump_proxy: EventLoopProxy<UserEvent>,
+    cover: (u32, u32),
     last_mouse_cell: Option<(u64, u64)>,
     pointer_visible: bool,
     latency: Option<Latency>,
@@ -171,6 +173,7 @@ impl App {
             bar_sent: None,
             recent: None,
             jump_proxy,
+            cover: (0, 0),
             last_mouse_cell: None,
             pointer_visible: true,
             latency,
@@ -196,6 +199,11 @@ impl App {
     }
 
     fn init(&mut self, event_loop: &ActiveEventLoop) -> Result<()> {
+        self.cover = event_loop
+            .available_monitors()
+            .map(|m| m.size())
+            .fold((0, 0), |(w, h), s| (w.max(s.width), h.max(s.height)));
+        self.load_wallpaper();
         let mut attrs = Window::default_attributes()
             .with_title("nvright")
             .with_inner_size(LogicalSize::new(1024.0, 640.0))
@@ -293,6 +301,17 @@ impl App {
         }
         window.request_redraw();
         self.hidden_since = None;
+    }
+
+    fn load_wallpaper(&self) {
+        let Some(path) = self.config.background_image.clone() else {
+            return;
+        };
+        let proxy = self.jump_proxy.clone();
+        crate::wallpaper::spawn(path, self.cover, move |image| {
+            let image = image.map_err(|e| format!("{e:#}"));
+            let _ = proxy.send_event(UserEvent::Wallpaper(image));
+        });
     }
 
     fn font_request(&self) -> FontRequest {
@@ -1217,6 +1236,13 @@ impl ApplicationHandler<UserEvent> for App {
                     window.request_redraw();
                 }
             }
+            UserEvent::Wallpaper(Ok(image)) => {
+                if let (Some(renderer), Some(window)) = (&mut self.renderer, &self.window) {
+                    renderer.set_wallpaper(&image);
+                    window.request_redraw();
+                }
+            }
+            UserEvent::Wallpaper(Err(err)) => log::warn!("{err}"),
             UserEvent::Snapshot(id) => {
                 if let (Some(renderer), Some(window)) = (&mut self.renderer, &self.window) {
                     renderer.request_snapshot(crate::snapshot::path(id));
